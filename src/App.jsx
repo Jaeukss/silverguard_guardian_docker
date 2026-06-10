@@ -22,6 +22,12 @@ import {
   Send,
   CheckCheck
 } from "lucide-react";
+import {
+  createFallEventApi,
+  listFallEventsApi,
+  updateFallEventStatusApi,
+  sendGuardianNotificationApi
+} from "./awsApi.js";
 
 const DEMO_USERS = [
   {
@@ -346,6 +352,39 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
+  // AWS 실시간 동기화: REST API 구조이므로 3초 폴링 방식
+  useEffect(() => {
+    if (!user) return;
+
+    const timer = setInterval(async () => {
+      try {
+        const data = await listFallEventsApi();
+        const events = Array.isArray(data) ? data : data?.items || [];
+
+        if (events.length > 0) {
+          const latest = events[0];
+
+          setIncident((prev) => ({
+            ...prev,
+            eventId: latest.eventId || prev.eventId,
+            status: latest.status || prev.status,
+            location: latest.location || prev.location,
+            detectedAt: latest.detectedAt || prev.detectedAt,
+            event_timestamp: latest.event_timestamp || prev.event_timestamp,
+            ack_status: latest.ack_status || prev.ack_status,
+            ack_at: latest.ack_at || prev.ack_at,
+            escalation_level: latest.escalation_level ?? prev.escalation_level
+          }));
+        }
+      } catch (err) {
+        console.warn("AWS 실시간 조회 실패:", err.message);
+      }
+    }, 3000);
+
+    return () => clearInterval(timer);
+  }, [user]);
+
+
   function showToast(message) {
     setToast(message);
     setTimeout(() => setToast(""), 2500);
@@ -398,97 +437,155 @@ export default function App() {
     showToast("모든 알림을 읽음 처리했습니다.");
   }
 
-  function createFallEvent() {
-    const current = nowTime();
+  async function createFallEvent() {
+    const now = new Date().toISOString();
 
-    const newIncident = {
-      eventId: makeEventId(),
-      status: "RECEIVED",
-      location: "3층 체련장",
-      displayLocation: "시설 공용공간",
-      residentLabel: "어르신",
-      severity: "HIGH",
-      detectedAt: current,
-      event_timestamp: current,
-      ack_status: "UNACKNOWLEDGED",
-      ack_at: null,
-      escalation_level: 0,
-      guardianNotification: "NOT_SENT",
-      actionResult: "낙상 사고가 접수됨"
+    const payload = {
+      residentId: "R1001",
+      location: "3층 복도 체련실 앞",
+      detectedAt: now,
+      event_timestamp: now,
+      sourceType: "CCTV",
+      severity: "HIGH"
     };
 
-    setIncident(newIncident);
-    setLastUpdated(0);
+    try {
+      showToast("AWS로 낙상 이벤트를 전송 중입니다...");
 
-    addNotification(
-      "admin",
-      "[긴급] 낙상 사고 발생",
-      "3층 체련장에서 낙상 사고가 접수되었습니다. 즉시 현장 확인이 필요합니다."
-    );
+      const result = await createFallEventApi(payload);
 
-    addNotification(
-      "guardian",
-      "낙상 사고 접수 안내",
-      "시설에서 어르신 상태를 확인 중입니다. 확인 결과는 조치 후 안내드리겠습니다."
-    );
+      const newIncident = {
+        eventId: result.eventId || makeEventId(),
+        status: result.status || "RECEIVED",
+        location: payload.location,
+        displayLocation: "시설 공용공간",
+        residentLabel: "어르신",
+        severity: payload.severity,
+        detectedAt: payload.detectedAt,
+        event_timestamp: payload.event_timestamp,
+        ack_status: "UNACKNOWLEDGED",
+        ack_at: null,
+        escalation_level: 0,
+        guardianNotification: "NOT_SENT",
+        actionResult: "AWS API Gateway를 통해 낙상 사고가 접수됨"
+      };
 
-    showToast("낙상 사고 이벤트가 접수되었습니다.");
+      setIncident(newIncident);
+      setLastUpdated(0);
+
+      addNotification(
+        "admin",
+        "[긴급] 낙상 사고 발생",
+        "AWS API Gateway를 통해 낙상 사고가 접수되었습니다. 즉시 현장 확인이 필요합니다."
+      );
+
+      addNotification(
+        "guardian",
+        "낙상 사고 접수 안내",
+        "시설에서 어르신 상태를 확인 중입니다. 확인 결과는 조치 후 안내드리겠습니다."
+      );
+
+      showToast("AWS 연동 성공: 낙상 이벤트가 접수되었습니다.");
+    } catch (err) {
+      console.error(err);
+      showToast(`AWS 연동 실패: ${err.message}`);
+    }
   }
 
-  function startResponse() {
+  async function startResponse() {
     if (incident.status !== "RECEIVED") return;
 
-    setIncident((prev) => ({
-      ...prev,
-      status: "IN_PROGRESS",
-      ack_status: "ACKNOWLEDGED",
-      ack_at: nowTime(),
-      escalation_level: 0,
-      actionResult: "시설 담당자가 현장 대응을 시작함"
-    }));
+    try {
+      await updateFallEventStatusApi(incident.eventId, {
+        status: "IN_PROGRESS",
+        ack_status: "ACKNOWLEDGED",
+        ack_by: "ADMIN_DEMO",
+        actionResult: "시설 담당자가 현장 대응을 시작함"
+      });
 
-    setLastUpdated(0);
+      setIncident((prev) => ({
+        ...prev,
+        status: "IN_PROGRESS",
+        ack_status: "ACKNOWLEDGED",
+        ack_at: nowTime(),
+        escalation_level: 0,
+        actionResult: "시설 담당자가 현장 대응을 시작함"
+      }));
 
-    addNotification(
-      "admin",
-      "대응 시작 처리 완료",
-      "담당자 확인 상태로 변경되었습니다. 현장 조치 후 대응 완료를 눌러 주세요."
-    );
+      setLastUpdated(0);
 
-    addNotification(
-      "guardian",
-      "시설 담당자 대응 중",
-      "담당자가 현장 확인을 진행하고 있습니다. 추가 안내가 필요한 경우 시설에서 연락드립니다."
-    );
+      addNotification(
+        "admin",
+        "대응 시작 처리 완료",
+        "AWS에 현장 대응 시작 상태가 저장되었습니다."
+      );
 
-    showToast("대응 시작 처리되었습니다.");
+      addNotification(
+        "guardian",
+        "시설 담당자 대응 중",
+        "담당자가 현장 확인을 진행하고 있습니다. 추가 안내가 필요한 경우 시설에서 연락드립니다."
+      );
+
+      showToast("AWS 상태 업데이트 성공: 대응 시작");
+    } catch (err) {
+      console.error(err);
+      showToast(`상태 업데이트 실패: ${err.message}`);
+    }
   }
 
-  function completeResponse() {
+  async function completeResponse() {
     if (incident.status !== "IN_PROGRESS") return;
 
-    setIncident((prev) => ({
-      ...prev,
-      status: "COMPLETED",
-      guardianNotification: "SENT",
-      actionResult: "현장 확인 및 초동 조치 완료"
-    }));
+    try {
+      await updateFallEventStatusApi(incident.eventId, {
+        status: "COMPLETED",
+        actionResult: "현장 확인 및 초동 조치 완료"
+      });
 
-    setLastUpdated(0);
+      let guardianSent = false;
 
-    addNotification(
-      "admin",
-      "대응 완료 및 보호자 안내 발송",
-      "조치 완료 처리되었습니다. 보호자에게 안심 안내가 발송되었습니다."
-    );
+      try {
+        await sendGuardianNotificationApi(incident.eventId, {
+          notifyGuardian: true,
+          message: "안내 말씀 드립니다. 어르신 낙상 사고가 있었으나 초동 조치 후 안정 취하시는 상태입니다."
+        });
+        guardianSent = true;
+      } catch (guardianErr) {
+        console.warn("보호자 알림 요청 실패:", guardianErr);
+      }
 
-    addNotification(
-      "guardian",
-      "조치 완료 안내",
-      "현재 안정 상태로 확인되었습니다. 자세한 사항은 시설로 문의 바랍니다."
-    );
+      setIncident((prev) => ({
+        ...prev,
+        status: "COMPLETED",
+        guardianNotification: guardianSent ? "SENT" : "FAILED",
+        actionResult: "현장 확인 및 초동 조치 완료"
+      }));
 
-    showToast("대응 완료 처리되었습니다. 보호자에게 안내가 발송되었습니다.");
+      setLastUpdated(0);
+
+      addNotification(
+        "admin",
+        "대응 완료 처리",
+        guardianSent
+          ? "AWS에 조치 완료 상태가 저장되고 보호자 알림이 요청되었습니다."
+          : "AWS에 조치 완료 상태는 저장되었지만 보호자 알림 요청은 실패했습니다."
+      );
+
+      addNotification(
+        "guardian",
+        "조치 완료 안내",
+        "현재 안정 상태로 확인되었습니다. 자세한 사항은 시설로 문의 바랍니다."
+      );
+
+      showToast(
+        guardianSent
+          ? "AWS 연동 성공: 대응 완료 및 보호자 알림 요청"
+          : "대응 완료 저장 성공, 보호자 알림은 실패"
+      );
+    } catch (err) {
+      console.error(err);
+      showToast(`대응 완료 처리 실패: ${err.message}`);
+    }
   }
 
   function resetDemo() {

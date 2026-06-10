@@ -498,6 +498,8 @@ export default function App() {
     try {
       await updateFallEventStatusApi(incident.eventId, {
         status: "IN_PROGRESS",
+        detectedAt: incident.detectedAt,
+        event_timestamp: incident.event_timestamp,
         ack_status: "ACKNOWLEDGED",
         ack_by: "ADMIN_DEMO",
         actionResult: "시설 담당자가 현장 대응을 시작함"
@@ -507,7 +509,7 @@ export default function App() {
         ...prev,
         status: "IN_PROGRESS",
         ack_status: "ACKNOWLEDGED",
-        ack_at: nowTime(),
+        ack_at: new Date().toISOString(),
         escalation_level: 0,
         actionResult: "시설 담당자가 현장 대응을 시작함"
       }));
@@ -539,6 +541,8 @@ export default function App() {
     try {
       await updateFallEventStatusApi(incident.eventId, {
         status: "COMPLETED",
+        detectedAt: incident.detectedAt,
+        event_timestamp: incident.event_timestamp,
         actionResult: "현장 확인 및 초동 조치 완료"
       });
 
@@ -547,6 +551,8 @@ export default function App() {
       try {
         await sendGuardianNotificationApi(incident.eventId, {
           notifyGuardian: true,
+          detectedAt: incident.detectedAt,
+          event_timestamp: incident.event_timestamp,
           message: "안내 말씀 드립니다. 어르신 낙상 사고가 있었으나 초동 조치 후 안정 취하시는 상태입니다."
         });
         guardianSent = true;

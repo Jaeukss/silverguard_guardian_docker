@@ -36,11 +36,22 @@ body {
   font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
-button {
+button,
+input {
   font-family: inherit;
 }
 
-.app-shell {
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.app-shell,
+.login-shell {
   position: fixed;
   inset: 0;
   overflow: hidden;
@@ -52,6 +63,131 @@ button {
     radial-gradient(circle at 12% 0%, rgba(255, 217, 0, 0.28), transparent 30%),
     radial-gradient(circle at 100% 8%, rgba(250, 82, 15, 0.14), transparent 35%),
     linear-gradient(135deg, #fffaf0 0%, #fff8e6 55%, #ffffff 100%);
+}
+
+.login-card {
+  width: min(390px, calc(100vw - 28px));
+  padding: 30px 22px 22px;
+  border-radius: 34px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+.login-logo {
+  width: 76px;
+  height: 76px;
+  margin: 0 auto 16px;
+  display: grid;
+  place-items: center;
+  border-radius: 28px;
+  color: white;
+  background: linear-gradient(135deg, var(--orange), var(--orange-2));
+  box-shadow: 0 18px 36px rgba(250, 82, 15, 0.25);
+}
+
+.login-card h1 {
+  margin: 0;
+  text-align: center;
+  color: var(--black);
+  font-size: 31px;
+  letter-spacing: -0.07em;
+}
+
+.login-subtitle {
+  margin: 8px 0 22px;
+  text-align: center;
+  color: var(--gray);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.login-form label span {
+  display: block;
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.login-form input {
+  width: 100%;
+  height: 52px;
+  padding: 0 15px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fffaf0;
+  color: var(--black);
+  font-size: 15px;
+  outline: none;
+}
+
+.demo-accounts {
+  margin-top: 18px;
+  padding: 14px;
+  border-radius: 22px;
+  background: #fff8df;
+  border: 1px solid rgba(250, 82, 15, 0.1);
+}
+
+.demo-accounts p {
+  margin: 0 0 10px;
+  color: var(--orange);
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.demo-accounts button {
+  width: 100%;
+  border: 0;
+  border-radius: 18px;
+  padding: 12px;
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: white;
+  color: var(--black);
+  text-align: left;
+}
+
+.demo-accounts button svg {
+  color: var(--orange);
+}
+
+.demo-accounts strong {
+  display: block;
+  font-size: 14px;
+}
+
+.demo-accounts span {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.global-toast {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(360px, calc(100vw - 32px));
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: white;
+  color: var(--black);
+  font-size: 14px;
+  font-weight: 900;
+  box-shadow: 0 18px 48px rgba(31, 31, 31, 0.16);
+  border-left: 5px solid var(--orange);
 }
 
 .bg-orb {
@@ -144,16 +280,15 @@ button {
   font-weight: 650;
 }
 
-.profile-button {
+.logout-button {
   width: 42px;
   height: 42px;
   border: 0;
   border-radius: 999px;
+  display: grid;
+  place-items: center;
   background: var(--black);
   color: white;
-  font-size: 14px;
-  font-weight: 950;
-  cursor: pointer;
 }
 
 .user-card {
@@ -269,7 +404,6 @@ button {
   color: #5f4b34;
   font-size: 12px;
   font-weight: 950;
-  cursor: pointer;
 }
 
 .hero-card {
@@ -415,6 +549,7 @@ button {
   border-radius: 20px;
   background: #fffbef;
   border: 1px solid var(--line);
+  overflow: hidden;
 }
 
 .info-grid span,
@@ -428,7 +563,8 @@ button {
 
 .info-grid strong {
   color: var(--black);
-  font-size: 14px;
+  font-size: 13px;
+  word-break: break-all;
 }
 
 .safe-tags {
@@ -473,12 +609,6 @@ button {
   font-size: 14px;
   line-height: 1.55;
   font-weight: 800;
-}
-
-.message-box.muted {
-  border-left-color: #dbc79a;
-  background: #fff8df;
-  color: #716858;
 }
 
 .timeline {
@@ -557,6 +687,10 @@ button {
   margin-top: 16px;
 }
 
+.actions.vertical {
+  flex-direction: column;
+}
+
 .primary-button,
 .secondary-button {
   min-height: 52px;
@@ -565,7 +699,6 @@ button {
   padding: 0 15px;
   font-size: 14px;
   font-weight: 950;
-  cursor: pointer;
   transition: transform 0.13s ease, opacity 0.13s ease;
 }
 
@@ -573,7 +706,8 @@ button {
 .secondary-button:active,
 .small-button:active,
 .bottom-nav button:active,
-.list-card:active {
+.list-card:active,
+.demo-accounts button:active {
   transform: scale(0.98);
 }
 
@@ -589,12 +723,6 @@ button {
   color: var(--orange);
   background: white;
   border: 1px solid rgba(250, 82, 15, 0.2);
-}
-
-.secondary-button:disabled {
-  color: rgba(31, 31, 31, 0.34);
-  background: #f5eee1;
-  border-color: transparent;
 }
 
 .full {
@@ -633,7 +761,6 @@ button {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  cursor: pointer;
 }
 
 .list-card.unread {
@@ -661,9 +788,6 @@ button {
   color: var(--orange);
   font-size: 12px;
   white-space: nowrap;
-  display: flex;
-  align-items: center;
-  gap: 2px;
 }
 
 .contact-hero {
@@ -735,7 +859,6 @@ button {
   align-items: center;
   justify-content: center;
   gap: 3px;
-  cursor: pointer;
 }
 
 .bottom-nav button.active {
@@ -774,19 +897,6 @@ button {
   color: var(--black);
   font-size: 13px;
   font-weight: 900;
-  animation: toastDown 0.18s ease;
-}
-
-@keyframes toastDown {
-  from {
-    opacity: 0;
-    transform: translateY(-6px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 .modal-backdrop {
@@ -805,17 +915,6 @@ button {
   background: white;
   box-shadow: 0 -20px 60px rgba(31, 31, 31, 0.18);
   position: relative;
-  animation: sheetUp 0.18s ease;
-}
-
-@keyframes sheetUp {
-  from {
-    transform: translateY(18px);
-  }
-
-  to {
-    transform: translateY(0);
-  }
 }
 
 .sheet-close {
@@ -830,7 +929,6 @@ button {
   place-items: center;
   background: var(--cream-2);
   color: var(--black);
-  cursor: pointer;
 }
 
 .sheet-icon {
@@ -852,7 +950,8 @@ button {
 }
 
 @media (max-width: 520px) {
-  .app-shell {
+  .app-shell,
+  .login-shell {
     padding: 0;
   }
 
@@ -862,6 +961,15 @@ button {
     border-radius: 0;
     border: 0;
     box-shadow: none;
+  }
+
+  .login-card {
+    width: 100vw;
+    min-height: 100dvh;
+    border-radius: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
   }
 
   .app-header {

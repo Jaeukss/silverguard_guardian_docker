@@ -10,83 +10,127 @@ import {
   CheckCircle2,
   AlertTriangle,
   Sparkles,
-  UserRound,
-  ChevronRight,
   Wifi,
-  X
+  X,
+  LogOut,
+  UserRound,
+  Building2,
+  Activity,
+  RefreshCcw,
+  MapPin,
+  Siren,
+  Send,
+  CheckCheck
 } from "lucide-react";
 
-const API_BASE_URL = ""; 
-// 나중에 AWS 연결할 때 여기에 넣기
-// 예: const API_BASE_URL = "https://h6lfwix2ke.execute-api.ap-northeast-2.amazonaws.com/dev";
+const DEMO_USERS = [
+  {
+    id: "admin",
+    password: "admin123",
+    role: "admin",
+    name: "시설 담당자",
+    subtitle: "낙상 사고 대응 담당자"
+  },
+  {
+    id: "guardian",
+    password: "guardian123",
+    role: "guardian",
+    name: "김보호님",
+    subtitle: "보호자 안심 알림 수신자"
+  }
+];
 
-const initialNotifications = [
+const DEFAULT_INCIDENT = {
+  eventId: "FE-DEMO-001",
+  status: "STABLE",
+  location: "3층 체련장",
+  displayLocation: "시설 공용공간",
+  residentLabel: "어르신",
+  severity: "HIGH",
+  detectedAt: "-",
+  event_timestamp: "-",
+  ack_status: "NONE",
+  ack_at: null,
+  escalation_level: 0,
+  guardianNotification: "NOT_SENT",
+  actionResult: ""
+};
+
+const DEFAULT_NOTIFICATIONS = [
   {
     id: 1,
-    time: "오늘 10:36",
-    title: "조치 완료 안내",
-    body: "현재 안정 상태입니다. 보호자 안내가 발송되었습니다.",
-    unread: true
+    role: "guardian",
+    time: "초기 상태",
+    title: "안정 상태",
+    body: "현재 등록된 낙상 사고가 없습니다.",
+    unread: false
   },
   {
     id: 2,
-    time: "오늘 10:31",
-    title: "담당자 확인",
-    body: "담당자가 현장 확인을 시작했습니다.",
-    unread: false
-  },
-  {
-    id: 3,
-    time: "오늘 10:30",
-    title: "사고 접수",
-    body: "낙상 사고가 접수되었습니다.",
+    role: "admin",
+    time: "초기 상태",
+    title: "대기 중",
+    body: "신규 낙상 이벤트 수신을 대기하고 있습니다.",
     unread: false
   }
 ];
 
-const historyItems = [
-  {
-    date: "2026.06.10",
-    title: "낙상 사고 조치 안내",
-    status: "안정 상태",
-    desc: "담당자 확인 및 보호자 안내 완료"
-  },
-  {
-    date: "2026.05.28",
-    title: "상태 확인 안내",
-    status: "이상 없음",
-    desc: "시설 정기 확인 완료"
-  },
-  {
-    date: "2026.05.11",
-    title: "생활 공간 확인 안내",
-    status: "조치 완료",
-    desc: "시설 담당자 확인 완료"
-  }
-];
+function nowTime() {
+  return new Date().toLocaleTimeString("ko-KR", {
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
 
-function getStateContent(state) {
-  if (state === "new") {
+function makeEventId() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const t = String(Date.now()).slice(-4);
+  return `FE-${y}${m}${day}-${t}`;
+}
+
+function loadFromStorage(key, fallback) {
+  try {
+    const saved = localStorage.getItem(key);
+    return saved ? JSON.parse(saved) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function getGuardianContent(status) {
+  if (status === "RECEIVED") {
     return {
       icon: <AlertTriangle size={34} />,
       badge: "접수됨",
-      title: "새 사고 알림이 접수되었습니다",
-      subtitle: "담당자에게 즉시 전달되었습니다.",
-      summary:
-        "담당자가 현장 확인을 준비 중입니다. 확인 결과는 즉시 안내드리겠습니다.",
+      title: "낙상 사고가 접수되었습니다",
+      subtitle: "시설에서 어르신 상태를 확인 중입니다.",
+      message: "담당자가 확인한 뒤 조치 상황을 안내드리겠습니다.",
       tone: "warning"
     };
   }
 
-  if (state === "checking") {
+  if (status === "IN_PROGRESS") {
     return {
       icon: <Clock3 size={34} />,
-      badge: "조치 중",
-      title: "담당자가 현장 확인 중입니다",
-      subtitle: "확인 결과를 즉시 안내드리겠습니다.",
-      summary:
-        "담당자가 현장 확인을 진행 중입니다. 확인 결과는 즉시 안내드리겠습니다.",
+      badge: "대응 중",
+      title: "시설 담당자가 대응 중입니다",
+      subtitle: "담당자가 현장 확인을 진행하고 있습니다.",
+      message: "추가 안내가 필요한 경우 시설에서 별도로 연락드립니다.",
       tone: "progress"
+    };
+  }
+
+  if (status === "COMPLETED") {
+    return {
+      icon: <ShieldCheck size={34} />,
+      badge: "조치 완료",
+      title: "조치가 완료되었습니다",
+      subtitle: "현재 안정 상태로 확인되었습니다.",
+      message: "자세한 사항은 시설로 문의 바랍니다.",
+      tone: "stable"
     };
   }
 
@@ -94,67 +138,205 @@ function getStateContent(state) {
     icon: <ShieldCheck size={34} />,
     badge: "안정 상태",
     title: "현재 안정 상태입니다",
-    subtitle: "초동 조치가 완료되었습니다.",
-    summary:
-      "현재 안정 상태로 확인되었습니다. 자세한 사항은 시설로 문의 바랍니다.",
+    subtitle: "등록된 낙상 사고가 없습니다.",
+    message: "새로운 안내가 발생하면 이 화면에서 확인할 수 있습니다.",
     tone: "stable"
   };
 }
 
-function getTimeline(state) {
-  const base = [
-    ["사고 접수", "10:30"],
-    ["담당자 확인", "10:31"],
-    ["초동 조치 완료", "10:35"],
-    ["보호자 안내 발송", "10:36"]
+function getAdminContent(status) {
+  if (status === "RECEIVED") {
+    return {
+      icon: <Siren size={34} />,
+      badge: "미확인",
+      title: "낙상 사고 발생",
+      subtitle: "현장 확인 및 대응 시작이 필요합니다.",
+      message: "발생 위치를 확인하고 즉시 대응 시작 버튼을 눌러 주세요.",
+      tone: "warning"
+    };
+  }
+
+  if (status === "IN_PROGRESS") {
+    return {
+      icon: <Activity size={34} />,
+      badge: "대응 중",
+      title: "현장 대응 중",
+      subtitle: "담당자 확인이 완료되었습니다.",
+      message: "현장 조치가 끝나면 대응 완료 버튼을 눌러 보호자 안내를 발송하세요.",
+      tone: "progress"
+    };
+  }
+
+  if (status === "COMPLETED") {
+    return {
+      icon: <CheckCheck size={34} />,
+      badge: "완료",
+      title: "대응 완료",
+      subtitle: "보호자 안내가 발송되었습니다.",
+      message: "사고 조치가 완료되었고 보호자에게 안심 안내가 발송되었습니다.",
+      tone: "stable"
+    };
+  }
+
+  return {
+    icon: <ShieldCheck size={34} />,
+    badge: "대기 중",
+    title: "신규 사고 대기 중",
+    subtitle: "현재 처리할 낙상 이벤트가 없습니다.",
+    message: "데모 시연을 위해 낙상 이벤트 발생 버튼을 눌러 흐름을 시작할 수 있습니다.",
+    tone: "stable"
+  };
+}
+
+function getTimeline(status) {
+  const steps = [
+    ["낙상 사고 접수", "RECEIVED"],
+    ["담당자 확인", "IN_PROGRESS"],
+    ["현장 대응 중", "IN_PROGRESS"],
+    ["조치 완료", "COMPLETED"],
+    ["보호자 안내 발송", "COMPLETED"]
   ];
 
-  return base.map(([label, time], index) => {
-    let status = "done";
+  return steps.map((step, index) => {
+    const [label, required] = step;
+    let state = "pending";
 
-    if (state === "new") {
-      status = index === 0 ? "done" : "pending";
+    if (status === "RECEIVED") {
+      state = index === 0 ? "done" : "pending";
     }
 
-    if (state === "checking") {
-      status = index <= 1 ? "done" : index === 2 ? "progress" : "pending";
+    if (status === "IN_PROGRESS") {
+      state = index <= 2 ? "done" : "pending";
+      if (index === 2) state = "progress";
     }
 
-    return { label, time, status };
+    if (status === "COMPLETED") {
+      state = "done";
+    }
+
+    if (status === "STABLE") {
+      state = "pending";
+    }
+
+    return {
+      label,
+      required,
+      state
+    };
   });
 }
 
-function formatLatestEventToState(item) {
-  if (!item) return "completed";
+function LoginScreen({ onLogin, toast }) {
+  const [id, setId] = useState("");
+  const [password, setPassword] = useState("");
 
-  const status = String(item.status || "").toUpperCase();
+  function submit(e) {
+    e.preventDefault();
+    onLogin(id, password);
+  }
 
-  if (status === "RECEIVED" || status === "OPEN") return "new";
-  if (status === "IN_PROGRESS") return "checking";
-  if (status === "COMPLETED") return "completed";
+  function quickLogin(user) {
+    setId(user.id);
+    setPassword(user.password);
+    onLogin(user.id, user.password);
+  }
 
-  return "completed";
+  return (
+    <div className="login-shell">
+      <div className="login-card">
+        <div className="login-logo">
+          <ShieldCheck size={38} />
+        </div>
+
+        <h1>SilverGuard</h1>
+        <p className="login-subtitle">
+          실버타운 낙상 사고 초동대응 플랫폼
+        </p>
+
+        <form className="login-form" onSubmit={submit}>
+          <label>
+            <span>아이디</span>
+            <input
+              value={id}
+              onChange={(e) => setId(e.target.value)}
+              placeholder="admin 또는 guardian"
+            />
+          </label>
+
+          <label>
+            <span>비밀번호</span>
+            <input
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="비밀번호 입력"
+              type="password"
+            />
+          </label>
+
+          <button className="primary-button full" type="submit">
+            로그인
+          </button>
+        </form>
+
+        <div className="demo-accounts">
+          <p>데모 계정</p>
+
+          <button onClick={() => quickLogin(DEMO_USERS[0])}>
+            <Building2 size={17} />
+            <div>
+              <strong>관리자 계정</strong>
+              <span>ID admin / PW admin123</span>
+            </div>
+          </button>
+
+          <button onClick={() => quickLogin(DEMO_USERS[1])}>
+            <UserRound size={17} />
+            <div>
+              <strong>보호자 계정</strong>
+              <span>ID guardian / PW guardian123</span>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      {toast && <div className="global-toast">{toast}</div>}
+    </div>
+  );
 }
 
 export default function App() {
+  const [user, setUser] = useState(null);
   const [tab, setTab] = useState("home");
-  const [incidentState, setIncidentState] = useState("completed");
-  const [notifications, setNotifications] = useState(initialNotifications);
-  const [lastUpdated, setLastUpdated] = useState(12);
-  const [confirmed, setConfirmed] = useState(false);
+  const [incident, setIncident] = useState(() =>
+    loadFromStorage("sg_incident", DEFAULT_INCIDENT)
+  );
+  const [notifications, setNotifications] = useState(() =>
+    loadFromStorage("sg_notifications", DEFAULT_NOTIFICATIONS)
+  );
+  const [lastUpdated, setLastUpdated] = useState(0);
   const [toast, setToast] = useState("");
   const [modal, setModal] = useState(null);
   const [selectedHistory, setSelectedHistory] = useState(null);
-  const [awsMode, setAwsMode] = useState(false);
 
-  const stateContent = useMemo(
-    () => getStateContent(incidentState),
-    [incidentState]
-  );
+  const isAdmin = user?.role === "admin";
+  const visibleNotifications = notifications.filter((n) => n.role === user?.role);
+  const unreadCount = visibleNotifications.filter((n) => n.unread).length;
 
-  const timeline = useMemo(() => getTimeline(incidentState), [incidentState]);
+  const content = useMemo(() => {
+    return isAdmin
+      ? getAdminContent(incident.status)
+      : getGuardianContent(incident.status);
+  }, [incident.status, isAdmin]);
 
-  const unreadCount = notifications.filter((n) => n.unread).length;
+  const timeline = useMemo(() => getTimeline(incident.status), [incident.status]);
+
+  useEffect(() => {
+    localStorage.setItem("sg_incident", JSON.stringify(incident));
+  }, [incident]);
+
+  useEffect(() => {
+    localStorage.setItem("sg_notifications", JSON.stringify(notifications));
+  }, [notifications]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -164,86 +346,43 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    if (!API_BASE_URL) return;
-
-    setAwsMode(true);
-
-    async function fetchLatest() {
-      try {
-        const res = await fetch(`${API_BASE_URL}/fall-events`, {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json"
-          }
-        });
-
-        if (!res.ok) {
-          throw new Error(`API Error: ${res.status}`);
-        }
-
-        const data = await res.json();
-        const list = Array.isArray(data) ? data : data.items || [];
-        const latest = list[0];
-
-        if (latest) {
-          setIncidentState(formatLatestEventToState(latest));
-          setLastUpdated(0);
-        }
-      } catch (error) {
-        console.log("AWS polling failed:", error);
-      }
-    }
-
-    fetchLatest();
-    const polling = setInterval(fetchLatest, 3000);
-
-    return () => clearInterval(polling);
-  }, []);
-
   function showToast(message) {
     setToast(message);
-
-    setTimeout(() => {
-      setToast("");
-    }, 2400);
+    setTimeout(() => setToast(""), 2500);
   }
 
-  function addNotification(title, body) {
+  function login(id, password) {
+    const found = DEMO_USERS.find(
+      (u) => u.id === id.trim() && u.password === password.trim()
+    );
+
+    if (!found) {
+      showToast("데모 계정 정보를 확인해 주세요.");
+      return;
+    }
+
+    setUser(found);
+    setTab("home");
+    showToast(`${found.name} 계정으로 로그인했습니다.`);
+  }
+
+  function logout() {
+    setUser(null);
+    setTab("home");
+  }
+
+  function addNotification(role, title, body) {
     setNotifications((prev) => [
       {
-        id: Date.now(),
-        time: "방금 전",
+        id: Date.now() + Math.random(),
+        role,
+        time: nowTime(),
         title,
         body,
         unread: true
       },
       ...prev
     ]);
-  }
-
-  function simulateIncident() {
-    setTab("home");
-    setConfirmed(false);
-    setIncidentState("new");
-    setLastUpdated(0);
-
-    addNotification("새 사고 알림 접수", "낙상 사고가 접수되었습니다.");
-    showToast("새로운 낙상 사고 알림이 접수되었습니다.");
-
-    setTimeout(() => {
-      setIncidentState("checking");
-      setLastUpdated(0);
-      addNotification("담당자 확인 시작", "담당자가 현장 확인을 시작했습니다.");
-      showToast("담당자가 현장 확인을 시작했습니다.");
-    }, 1800);
-
-    setTimeout(() => {
-      setIncidentState("completed");
-      setLastUpdated(0);
-      addNotification("조치 완료 안내", "현재 안정 상태로 확인되었습니다.");
-      showToast("초동 조치가 완료되었습니다.");
-    }, 5200);
   }
 
   function markRead(id) {
@@ -253,19 +392,127 @@ export default function App() {
   }
 
   function readAll() {
-    setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
+    setNotifications((prev) =>
+      prev.map((n) => (n.role === user.role ? { ...n, unread: false } : n))
+    );
     showToast("모든 알림을 읽음 처리했습니다.");
   }
 
-  function confirmGuardian() {
-    setConfirmed(true);
-    showToast("확인 처리되었습니다. 추가 안내가 필요한 경우 다시 알림을 보내드립니다.");
+  function createFallEvent() {
+    const current = nowTime();
+
+    const newIncident = {
+      eventId: makeEventId(),
+      status: "RECEIVED",
+      location: "3층 체련장",
+      displayLocation: "시설 공용공간",
+      residentLabel: "어르신",
+      severity: "HIGH",
+      detectedAt: current,
+      event_timestamp: current,
+      ack_status: "UNACKNOWLEDGED",
+      ack_at: null,
+      escalation_level: 0,
+      guardianNotification: "NOT_SENT",
+      actionResult: "낙상 사고가 접수됨"
+    };
+
+    setIncident(newIncident);
+    setLastUpdated(0);
+
+    addNotification(
+      "admin",
+      "[긴급] 낙상 사고 발생",
+      "3층 체련장에서 낙상 사고가 접수되었습니다. 즉시 현장 확인이 필요합니다."
+    );
+
+    addNotification(
+      "guardian",
+      "낙상 사고 접수 안내",
+      "시설에서 어르신 상태를 확인 중입니다. 확인 결과는 조치 후 안내드리겠습니다."
+    );
+
+    showToast("낙상 사고 이벤트가 접수되었습니다.");
+  }
+
+  function startResponse() {
+    if (incident.status !== "RECEIVED") return;
+
+    setIncident((prev) => ({
+      ...prev,
+      status: "IN_PROGRESS",
+      ack_status: "ACKNOWLEDGED",
+      ack_at: nowTime(),
+      escalation_level: 0,
+      actionResult: "시설 담당자가 현장 대응을 시작함"
+    }));
+
+    setLastUpdated(0);
+
+    addNotification(
+      "admin",
+      "대응 시작 처리 완료",
+      "담당자 확인 상태로 변경되었습니다. 현장 조치 후 대응 완료를 눌러 주세요."
+    );
+
+    addNotification(
+      "guardian",
+      "시설 담당자 대응 중",
+      "담당자가 현장 확인을 진행하고 있습니다. 추가 안내가 필요한 경우 시설에서 연락드립니다."
+    );
+
+    showToast("대응 시작 처리되었습니다.");
+  }
+
+  function completeResponse() {
+    if (incident.status !== "IN_PROGRESS") return;
+
+    setIncident((prev) => ({
+      ...prev,
+      status: "COMPLETED",
+      guardianNotification: "SENT",
+      actionResult: "현장 확인 및 초동 조치 완료"
+    }));
+
+    setLastUpdated(0);
+
+    addNotification(
+      "admin",
+      "대응 완료 및 보호자 안내 발송",
+      "조치 완료 처리되었습니다. 보호자에게 안심 안내가 발송되었습니다."
+    );
+
+    addNotification(
+      "guardian",
+      "조치 완료 안내",
+      "현재 안정 상태로 확인되었습니다. 자세한 사항은 시설로 문의 바랍니다."
+    );
+
+    showToast("대응 완료 처리되었습니다. 보호자에게 안내가 발송되었습니다.");
+  }
+
+  function resetDemo() {
+    setIncident(DEFAULT_INCIDENT);
+    setNotifications(DEFAULT_NOTIFICATIONS);
+    setLastUpdated(0);
+    showToast("데모 상태를 초기화했습니다.");
   }
 
   function openHistory(item) {
     setSelectedHistory(item);
     setModal("history");
   }
+
+  if (!user) {
+    return <LoginScreen onLogin={login} toast={toast} />;
+  }
+
+  const navItems = [
+    { key: "home", label: isAdmin ? "대응" : "홈", icon: Home },
+    { key: "notifications", label: "알림", icon: Bell },
+    { key: "history", label: "기록", icon: FileText },
+    { key: "contact", label: isAdmin ? "운영" : "문의", icon: MessageCircle }
+  ];
 
   return (
     <div className="app-shell">
@@ -282,24 +529,24 @@ export default function App() {
               </div>
               <div>
                 <h1>SilverGuard</h1>
-                <p>보호자 안심 알림</p>
+                <p>{isAdmin ? "시설 담당자 모드" : "보호자 안심 알림"}</p>
               </div>
             </div>
 
-            <button className="profile-button" type="button">
-              김
+            <button className="logout-button" type="button" onClick={logout}>
+              <LogOut size={18} />
             </button>
           </div>
 
           <div className="user-card">
             <div>
-              <span>보호자 계정</span>
-              <strong>김보호님</strong>
+              <span>{isAdmin ? "관리자 계정" : "보호자 계정"}</span>
+              <strong>{user.name}</strong>
             </div>
 
             <div className="live-pill">
               <Wifi size={13} />
-              {awsMode ? "AWS 연동 중" : "데모 모드"}
+              데모 모드
               {unreadCount > 0 && <b>{unreadCount}</b>}
             </div>
           </div>
@@ -310,22 +557,27 @@ export default function App() {
             <section className="page">
               <div className="page-title-row">
                 <div>
-                  <p className="eyebrow">TODAY STATUS</p>
-                  <h2>오늘의 안심 현황</h2>
+                  <p className="eyebrow">
+                    {isAdmin ? "STAFF RESPONSE" : "TODAY STATUS"}
+                  </p>
+                  <h2>{isAdmin ? "낙상 대응 현황" : "오늘의 안심 현황"}</h2>
                 </div>
-                <button className="small-button" onClick={simulateIncident}>
-                  알림 테스트
-                </button>
+
+                {isAdmin && (
+                  <button className="small-button" onClick={createFallEvent}>
+                    사고 발생
+                  </button>
+                )}
               </div>
 
-              <section className={`hero-card ${stateContent.tone}`}>
+              <section className={`hero-card ${content.tone}`}>
                 <div className="hero-top">
-                  <div className="status-icon">{stateContent.icon}</div>
-                  <span className="status-badge">{stateContent.badge}</span>
+                  <div className="status-icon">{content.icon}</div>
+                  <span className="status-badge">{content.badge}</span>
                 </div>
 
-                <h2>{stateContent.title}</h2>
-                <p>{stateContent.subtitle}</p>
+                <h2>{content.title}</h2>
+                <p>{content.subtitle}</p>
 
                 <div className="update-line">
                   <span>마지막 업데이트</span>
@@ -333,39 +585,17 @@ export default function App() {
                 </div>
               </section>
 
-              <section className="card">
-                <div className="card-head">
-                  <div>
-                    <p className="eyebrow">LATEST NOTICE</p>
-                    <h3>낙상 사고 조치 안내</h3>
-                  </div>
-                  <span className="mini-badge">{stateContent.badge}</span>
-                </div>
-
-                <div className="info-grid">
-                  <div>
-                    <span>발생 시각</span>
-                    <strong>오늘 10:30</strong>
-                  </div>
-                  <div>
-                    <span>안내 발송</span>
-                    <strong>오늘 10:36</strong>
-                  </div>
-                </div>
-
-                <div className="safe-tags">
-                  <span>대상</span>
-                  <b>어르신</b>
-                  <span>위치</span>
-                  <b>시설 공용공간</b>
-                </div>
-
-                <p className="body-text">
-                  어르신께 낙상 사고가 있었으나, 담당자가 현장 확인 후 필요한 조치를 진행했습니다.
-                </p>
-
-                <div className="message-box">{stateContent.summary}</div>
-              </section>
+              {isAdmin ? (
+                <AdminPanel
+                  incident={incident}
+                  content={content}
+                  onStart={startResponse}
+                  onComplete={completeResponse}
+                  onReset={resetDemo}
+                />
+              ) : (
+                <GuardianPanel incident={incident} content={content} />
+              )}
 
               <section className="card">
                 <div className="section-head">
@@ -378,8 +608,8 @@ export default function App() {
                 <div className="timeline">
                   {timeline.map((step, index) => (
                     <div className="time-item" key={step.label}>
-                      <div className={`time-mark ${step.status}`}>
-                        {step.status === "done" ? (
+                      <div className={`time-mark ${step.state}`}>
+                        {step.state === "done" ? (
                           <CheckCircle2 size={18} />
                         ) : (
                           index + 1
@@ -387,41 +617,28 @@ export default function App() {
                       </div>
                       <div className="time-body">
                         <strong>{step.label}</strong>
-                        {step.status === "progress" && (
-                          <em>진행 중</em>
-                        )}
-                        <p>{step.time}</p>
+                        {step.state === "progress" && <em>진행 중</em>}
+                        <p>{incident.status === "STABLE" ? "대기" : "업데이트됨"}</p>
                       </div>
                     </div>
                   ))}
                 </div>
               </section>
 
-              <section className="notice-card">
-                <div className="section-head">
-                  <div className="round-icon">
-                    <Sparkles size={18} />
+              {!isAdmin && (
+                <section className="notice-card">
+                  <div className="section-head">
+                    <div className="round-icon">
+                      <Sparkles size={18} />
+                    </div>
+                    <h3>안내 사항</h3>
                   </div>
-                  <h3>안내 사항</h3>
-                </div>
-                <p>추가 조치가 필요한 경우 시설 담당자가 별도로 연락드립니다.</p>
-                <small>
-                  개인정보 보호를 위해 상세 위치와 민감 정보는 표시되지 않습니다.
-                </small>
-              </section>
-
-              <div className="actions">
-                <button className="primary-button" onClick={() => setModal("contact")}>
-                  시설에 문의하기
-                </button>
-                <button
-                  className="secondary-button"
-                  disabled={confirmed}
-                  onClick={confirmGuardian}
-                >
-                  {confirmed ? "확인 완료" : "확인했습니다"}
-                </button>
-              </div>
+                  <p>추가 조치가 필요한 경우 시설 담당자가 별도로 연락드립니다.</p>
+                  <small>
+                    개인정보 보호를 위해 상세 위치와 민감 정보는 표시되지 않습니다.
+                  </small>
+                </section>
+              )}
             </section>
           )}
 
@@ -442,7 +659,7 @@ export default function App() {
               </div>
 
               <div className="list">
-                {notifications.map((item) => (
+                {visibleNotifications.map((item) => (
                   <button
                     className={`list-card notification ${item.unread ? "unread" : ""}`}
                     key={item.id}
@@ -462,99 +679,79 @@ export default function App() {
 
           {tab === "history" && (
             <section className="page">
-              <p className="eyebrow">RECENT 30 DAYS</p>
+              <p className="eyebrow">EVENT HISTORY</p>
               <h2 className="page-title">안내 기록</h2>
 
               <div className="list with-margin">
-                {historyItems.map((item) => (
-                  <button
-                    className="list-card history"
-                    key={item.date}
-                    onClick={() => openHistory(item)}
-                  >
-                    <div>
-                      <span>{item.date}</span>
-                      <h3>{item.title}</h3>
-                      <p>{item.desc}</p>
-                    </div>
-                    <strong>
-                      {item.status}
-                      <ChevronRight size={15} />
-                    </strong>
-                  </button>
-                ))}
+                <button
+                  className="list-card history"
+                  onClick={() =>
+                    openHistory({
+                      title: "현재 데모 사고",
+                      date: incident.detectedAt,
+                      status: incident.status,
+                      desc: incident.actionResult || "현재 처리 중인 사고 이력이 없습니다."
+                    })
+                  }
+                >
+                  <div>
+                    <span>{incident.detectedAt}</span>
+                    <h3>{incident.eventId}</h3>
+                    <p>{incident.actionResult || "현재 처리 중인 사고 이력이 없습니다."}</p>
+                  </div>
+                  <strong>{incident.status}</strong>
+                </button>
+
+                <button
+                  className="list-card history"
+                  onClick={() =>
+                    openHistory({
+                      title: "정기 상태 확인",
+                      date: "2026.05.28",
+                      status: "이상 없음",
+                      desc: "시설 정기 확인 완료"
+                    })
+                  }
+                >
+                  <div>
+                    <span>2026.05.28</span>
+                    <h3>정기 상태 확인</h3>
+                    <p>시설 정기 확인 완료</p>
+                  </div>
+                  <strong>이상 없음</strong>
+                </button>
               </div>
             </section>
           )}
 
           {tab === "contact" && (
             <section className="page">
-              <section className="contact-hero">
-                <div className="contact-icon">
-                  <Phone size={31} />
-                </div>
-                <h2>시설 문의</h2>
-                <p>긴급한 문의가 필요한 경우 시설 대표번호로 연락해 주세요.</p>
-                <button className="primary-button full" onClick={() => setModal("contact")}>
-                  시설에 문의하기
-                </button>
-              </section>
-
-              <section className="card">
-                <h3 className="faq-title">자주 묻는 질문</h3>
-
-                <div className="faq">
-                  <strong>보호자 알림은 언제 발송되나요?</strong>
-                  <p>담당자 확인 및 초동 조치 후 보호자에게 안심 알림이 발송됩니다.</p>
-                </div>
-
-                <div className="faq">
-                  <strong>왜 상세 위치가 표시되지 않나요?</strong>
-                  <p>개인정보 보호를 위해 상세 위치와 민감 정보는 표시하지 않습니다.</p>
-                </div>
-
-                <div className="faq">
-                  <strong>추가 연락은 언제 오나요?</strong>
-                  <p>추가 조치가 필요한 경우 시설 담당자가 별도로 연락드립니다.</p>
-                </div>
-              </section>
+              {isAdmin ? (
+                <AdminOpsPanel incident={incident} resetDemo={resetDemo} />
+              ) : (
+                <GuardianContact setModal={setModal} />
+              )}
             </section>
           )}
         </section>
 
         <nav className="bottom-nav">
-          <button
-            className={tab === "home" ? "active" : ""}
-            onClick={() => setTab("home")}
-          >
-            <Home size={19} />
-            홈
-          </button>
-
-          <button
-            className={tab === "notifications" ? "active" : ""}
-            onClick={() => setTab("notifications")}
-          >
-            <Bell size={19} />
-            알림
-            {unreadCount > 0 && <i>{unreadCount}</i>}
-          </button>
-
-          <button
-            className={tab === "history" ? "active" : ""}
-            onClick={() => setTab("history")}
-          >
-            <FileText size={19} />
-            기록
-          </button>
-
-          <button
-            className={tab === "contact" ? "active" : ""}
-            onClick={() => setTab("contact")}
-          >
-            <MessageCircle size={19} />
-            문의
-          </button>
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.key}
+                className={tab === item.key ? "active" : ""}
+                onClick={() => setTab(item.key)}
+              >
+                <Icon size={19} />
+                {item.label}
+                {item.key === "notifications" && unreadCount > 0 && (
+                  <i>{unreadCount}</i>
+                )}
+              </button>
+            );
+          })}
         </nav>
 
         {toast && <div className="toast">{toast}</div>}
@@ -602,9 +799,6 @@ export default function App() {
                 {selectedHistory.date} · {selectedHistory.status}
               </p>
               <div className="message-box">{selectedHistory.desc}</div>
-              <div className="message-box muted">
-                개인정보 보호를 위해 상세 위치와 민감 정보는 표시되지 않습니다.
-              </div>
               <button className="primary-button full" onClick={() => setModal(null)}>
                 확인
               </button>
@@ -613,5 +807,196 @@ export default function App() {
         )}
       </main>
     </div>
+  );
+}
+
+function AdminPanel({ incident, content, onStart, onComplete, onReset }) {
+  const canStart = incident.status === "RECEIVED";
+  const canComplete = incident.status === "IN_PROGRESS";
+
+  return (
+    <>
+      <section className="card">
+        <div className="card-head">
+          <div>
+            <p className="eyebrow">INCIDENT DETAIL</p>
+            <h3>사고 상세 정보</h3>
+          </div>
+          <span className="mini-badge">{incident.status}</span>
+        </div>
+
+        <div className="info-grid">
+          <div>
+            <span>사고 ID</span>
+            <strong>{incident.eventId}</strong>
+          </div>
+          <div>
+            <span>발생 위치</span>
+            <strong>{incident.location}</strong>
+          </div>
+          <div>
+            <span>발생 시각</span>
+            <strong>{incident.detectedAt}</strong>
+          </div>
+          <div>
+            <span>수신 확인</span>
+            <strong>{incident.ack_status}</strong>
+          </div>
+        </div>
+
+        <div className="safe-tags">
+          <span>심각도</span>
+          <b>긴급</b>
+          <span>에스컬레이션</span>
+          <b>L{incident.escalation_level}</b>
+        </div>
+
+        <div className="message-box">{content.message}</div>
+      </section>
+
+      <div className="actions vertical">
+        <button
+          className="primary-button full"
+          disabled={!canStart}
+          onClick={onStart}
+        >
+          대응 시작
+        </button>
+
+        <button
+          className="primary-button full"
+          disabled={!canComplete}
+          onClick={onComplete}
+        >
+          대응 완료 및 보호자 안내 발송
+        </button>
+
+        <button className="secondary-button full" onClick={onReset}>
+          데모 초기화
+        </button>
+      </div>
+    </>
+  );
+}
+
+function GuardianPanel({ incident, content }) {
+  return (
+    <section className="card">
+      <div className="card-head">
+        <div>
+          <p className="eyebrow">LATEST NOTICE</p>
+          <h3>보호자 안내</h3>
+        </div>
+        <span className="mini-badge">{content.badge}</span>
+      </div>
+
+      <div className="info-grid">
+        <div>
+          <span>발생 시각</span>
+          <strong>{incident.detectedAt}</strong>
+        </div>
+        <div>
+          <span>안내 상태</span>
+          <strong>
+            {incident.guardianNotification === "SENT" ? "발송 완료" : "확인 중"}
+          </strong>
+        </div>
+      </div>
+
+      <div className="safe-tags">
+        <span>대상</span>
+        <b>어르신</b>
+        <span>위치</span>
+        <b>{incident.displayLocation}</b>
+      </div>
+
+      <p className="body-text">
+        개인정보 보호를 위해 상세 위치, 입주민 식별 정보, 구체적 상해 내용은 표시하지 않습니다.
+      </p>
+
+      <div className="message-box">{content.message}</div>
+    </section>
+  );
+}
+
+function AdminOpsPanel({ incident, resetDemo }) {
+  return (
+    <>
+      <section className="contact-hero">
+        <div className="contact-icon">
+          <Activity size={31} />
+        </div>
+        <h2>운영 상태</h2>
+        <p>데모 환경에서는 실제 AWS 지표 대신 사고 처리 상태를 기준으로 운영 흐름을 표시합니다.</p>
+      </section>
+
+      <section className="card">
+        <div className="section-head">
+          <div className="round-icon">
+            <RefreshCcw size={18} />
+          </div>
+          <h3>현재 처리 상태</h3>
+        </div>
+
+        <div className="info-grid">
+          <div>
+            <span>현재 상태</span>
+            <strong>{incident.status}</strong>
+          </div>
+          <div>
+            <span>보호자 안내</span>
+            <strong>{incident.guardianNotification}</strong>
+          </div>
+          <div>
+            <span>ACK 상태</span>
+            <strong>{incident.ack_status}</strong>
+          </div>
+          <div>
+            <span>Escalation</span>
+            <strong>L{incident.escalation_level}</strong>
+          </div>
+        </div>
+
+        <button className="secondary-button full" onClick={resetDemo}>
+          데모 데이터 초기화
+        </button>
+      </section>
+    </>
+  );
+}
+
+function GuardianContact({ setModal }) {
+  return (
+    <>
+      <section className="contact-hero">
+        <div className="contact-icon">
+          <Phone size={31} />
+        </div>
+        <h2>시설 문의</h2>
+        <p>긴급한 문의가 필요한 경우 시설 대표번호로 연락해 주세요.</p>
+        <button className="primary-button full" onClick={() => setModal("contact")}>
+          시설에 문의하기
+        </button>
+      </section>
+
+      <section className="card">
+        <h3 className="faq-title">자주 묻는 질문</h3>
+
+        <div className="faq">
+          <strong>보호자 알림은 언제 발송되나요?</strong>
+          <p>담당자 확인 및 초동 조치 후 보호자에게 안심 알림이 발송됩니다.</p>
+        </div>
+
+        <div className="faq">
+          <strong>왜 상세 위치가 표시되지 않나요?</strong>
+          <p>개인정보 보호를 위해 상세 위치와 민감 정보는 표시하지 않습니다.</p>
+        </div>
+
+        <div className="faq">
+          <strong>추가 연락은 언제 오나요?</strong>
+          <p>추가 조치가 필요한 경우 시설 담당자가 별도로 연락드립니다.</p>
+        </div>
+      </section>
+    </>
   );
 }

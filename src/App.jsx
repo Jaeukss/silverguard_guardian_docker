@@ -352,6 +352,39 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
+  // AWS 실시간 동기화: REST API 구조이므로 3초 폴링 방식
+  useEffect(() => {
+    if (!user) return;
+
+    const timer = setInterval(async () => {
+      try {
+        const data = await listFallEventsApi();
+        const events = Array.isArray(data) ? data : data?.items || [];
+
+        if (events.length > 0) {
+          const latest = events[0];
+
+          setIncident((prev) => ({
+            ...prev,
+            eventId: latest.eventId || prev.eventId,
+            status: latest.status || prev.status,
+            location: latest.location || prev.location,
+            detectedAt: latest.detectedAt || prev.detectedAt,
+            event_timestamp: latest.event_timestamp || prev.event_timestamp,
+            ack_status: latest.ack_status || prev.ack_status,
+            ack_at: latest.ack_at || prev.ack_at,
+            escalation_level: latest.escalation_level ?? prev.escalation_level
+          }));
+        }
+      } catch (err) {
+        console.warn("AWS 실시간 조회 실패:", err.message);
+      }
+    }, 3000);
+
+    return () => clearInterval(timer);
+  }, [user]);
+
+
   function showToast(message) {
     setToast(message);
     setTimeout(() => setToast(""), 2500);
@@ -405,27 +438,21 @@ export default function App() {
   }
 
   async function createFallEvent() {
-    const nowIso = new Date().toISOString();
+    const now = new Date().toISOString();
 
     const payload = {
       residentId: "R1001",
       location: "3층 복도 체련실 앞",
-      detectedAt: nowIso,
-      event_timestamp: nowIso,
+      detectedAt: now,
+      event_timestamp: now,
       sourceType: "CCTV",
       severity: "HIGH"
     };
 
-    const flowStartedAtMs = Date.now();
-    const payloadText = JSON.stringify(payload);
-    const payloadBytes = new Blob([payloadText]).size;
-
     try {
       showToast("AWS로 낙상 이벤트를 전송 중입니다...");
 
-      const apiStartMs = performance.now();
       const result = await createFallEventApi(payload);
-      const apiLatencyMs = Math.round(performance.now() - apiStartMs);
 
       const newIncident = {
         eventId: result.eventId || makeEventId(),
@@ -440,15 +467,7 @@ export default function App() {
         ack_at: null,
         escalation_level: 0,
         guardianNotification: "NOT_SENT",
-        actionResult: "AWS API Gateway를 통해 낙상 사고가 접수됨",
-
-        flowStartedAtMs,
-        flowUpdatedAtMs: Date.now(),
-        apiLatencyMs,
-        payloadBytes,
-        statusUpdateLatencyMs: null,
-        completeLatencyMs: null,
-        guardianLatencyMs: null
+        actionResult: "AWS API Gateway를 통해 낙상 사고가 접수됨"
       };
 
       setIncident(newIncident);
@@ -477,8 +496,6 @@ export default function App() {
     if (incident.status !== "RECEIVED") return;
 
     try {
-      const patchStartMs = performance.now();
-
       await updateFallEventStatusApi(incident.eventId, {
         status: "IN_PROGRESS",
         detectedAt: incident.detectedAt,
@@ -488,17 +505,13 @@ export default function App() {
         actionResult: "시설 담당자가 현장 대응을 시작함"
       });
 
-      const statusUpdateLatencyMs = Math.round(performance.now() - patchStartMs);
-
       setIncident((prev) => ({
         ...prev,
         status: "IN_PROGRESS",
         ack_status: "ACKNOWLEDGED",
         ack_at: new Date().toISOString(),
         escalation_level: 0,
-        actionResult: "시설 담당자가 현장 대응을 시작함",
-        statusUpdateLatencyMs,
-        flowUpdatedAtMs: Date.now()
+        actionResult: "시설 담당자가 현장 대응을 시작함"
       }));
 
       setLastUpdated(0);
@@ -526,8 +539,6 @@ export default function App() {
     if (incident.status !== "IN_PROGRESS") return;
 
     try {
-      const completeStartMs = performance.now();
-
       await updateFallEventStatusApi(incident.eventId, {
         status: "COMPLETED",
         detectedAt: incident.detectedAt,
@@ -535,22 +546,15 @@ export default function App() {
         actionResult: "현장 확인 및 초동 조치 완료"
       });
 
-      const completeLatencyMs = Math.round(performance.now() - completeStartMs);
-
       let guardianSent = false;
-      let guardianLatencyMs = null;
 
       try {
-        const guardianStartMs = performance.now();
-
         await sendGuardianNotificationApi(incident.eventId, {
           notifyGuardian: true,
           detectedAt: incident.detectedAt,
           event_timestamp: incident.event_timestamp,
           message: "안내 말씀 드립니다. 어르신 낙상 사고가 있었으나 초동 조치 후 안정 취하시는 상태입니다."
         });
-
-        guardianLatencyMs = Math.round(performance.now() - guardianStartMs);
         guardianSent = true;
       } catch (guardianErr) {
         console.warn("보호자 알림 요청 실패:", guardianErr);
@@ -560,10 +564,7 @@ export default function App() {
         ...prev,
         status: "COMPLETED",
         guardianNotification: guardianSent ? "SENT" : "FAILED",
-        actionResult: "현장 확인 및 초동 조치 완료",
-        completeLatencyMs,
-        guardianLatencyMs,
-        flowUpdatedAtMs: Date.now()
+        actionResult: "현장 확인 및 초동 조치 완료"
       }));
 
       setLastUpdated(0);

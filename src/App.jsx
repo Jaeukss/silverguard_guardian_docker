@@ -449,13 +449,16 @@ export default function App() {
       severity: "HIGH"
     };
 
+    const flowStartTime = Date.now();
+    const payloadText = JSON.stringify(payload);
+    const payloadBytes = new Blob([payloadText]).size;
+
     try {
       showToast("AWS로 낙상 이벤트를 전송 중입니다...");
 
-      const apiStart = performance.now();
-      const payloadBytes = new Blob([JSON.stringify(payload)]).size;
+      const apiStartTime = performance.now();
       const result = await createFallEventApi(payload);
-      const apiLatencyMs = Math.round(performance.now() - apiStart);
+      const apiLatencyMs = Math.round(performance.now() - apiStartTime);
 
       const newIncident = {
         eventId: result.eventId || makeEventId(),
@@ -471,10 +474,14 @@ export default function App() {
         escalation_level: 0,
         guardianNotification: "NOT_SENT",
         actionResult: "AWS API Gateway를 통해 낙상 사고가 접수됨",
-        apiLatencyMs,
-        payloadBytes,
-        flowStartedAt: now,
-        flowUpdatedAt: new Date().toISOString()
+
+        flowStartedAtMs: flowStartTime,
+        flowUpdatedAtMs: Date.now(),
+        apiLatencyMs: apiLatencyMs,
+        payloadBytes: payloadBytes,
+        statusUpdateLatencyMs: null,
+        completeLatencyMs: null,
+        guardianLatencyMs: null
       };
 
       setIncident(newIncident);
@@ -503,18 +510,18 @@ export default function App() {
     if (incident.status !== "RECEIVED") return;
 
     try {
-      const patchStart = performance.now();
+      const patchStartTime = performance.now();
+
       await updateFallEventStatusApi(incident.eventId, {
         status: "IN_PROGRESS",
         detectedAt: incident.detectedAt,
         event_timestamp: incident.event_timestamp,
         ack_status: "ACKNOWLEDGED",
         ack_by: "ADMIN_DEMO",
-        actionResult: "시설 담당자가 현장 대응을 시작함",
-        statusUpdateLatencyMs,
-        flowUpdatedAt: new Date().toISOString()
+        actionResult: "시설 담당자가 현장 대응을 시작함"
       });
-      const statusUpdateLatencyMs = Math.round(performance.now() - patchStart);
+
+      const measuredStatusLatencyMs = Math.round(performance.now() - patchStartTime);
 
       setIncident((prev) => ({
         ...prev,
@@ -523,8 +530,8 @@ export default function App() {
         ack_at: new Date().toISOString(),
         escalation_level: 0,
         actionResult: "시설 담당자가 현장 대응을 시작함",
-        statusUpdateLatencyMs,
-        flowUpdatedAt: new Date().toISOString()
+        statusUpdateLatencyMs: measuredStatusLatencyMs,
+        flowUpdatedAtMs: Date.now()
       }));
 
       setLastUpdated(0);
@@ -552,26 +559,31 @@ export default function App() {
     if (incident.status !== "IN_PROGRESS") return;
 
     try {
-      const completeStart = performance.now();
+      const completeStartTime = performance.now();
+
       await updateFallEventStatusApi(incident.eventId, {
         status: "COMPLETED",
         detectedAt: incident.detectedAt,
         event_timestamp: incident.event_timestamp,
-        actionResult: "현장 확인 및 초동 조치 완료",
-        completeLatencyMs,
-        flowUpdatedAt: new Date().toISOString()
+        actionResult: "현장 확인 및 초동 조치 완료"
       });
-      const completeLatencyMs = Math.round(performance.now() - completeStart);
+
+      const measuredCompleteLatencyMs = Math.round(performance.now() - completeStartTime);
 
       let guardianSent = false;
+      let measuredGuardianLatencyMs = null;
 
       try {
+        const guardianStartTime = performance.now();
+
         await sendGuardianNotificationApi(incident.eventId, {
           notifyGuardian: true,
           detectedAt: incident.detectedAt,
           event_timestamp: incident.event_timestamp,
           message: "안내 말씀 드립니다. 어르신 낙상 사고가 있었으나 초동 조치 후 안정 취하시는 상태입니다."
         });
+
+        measuredGuardianLatencyMs = Math.round(performance.now() - guardianStartTime);
         guardianSent = true;
       } catch (guardianErr) {
         console.warn("보호자 알림 요청 실패:", guardianErr);
@@ -582,8 +594,9 @@ export default function App() {
         status: "COMPLETED",
         guardianNotification: guardianSent ? "SENT" : "FAILED",
         actionResult: "현장 확인 및 초동 조치 완료",
-        completeLatencyMs,
-        flowUpdatedAt: new Date().toISOString()
+        completeLatencyMs: measuredCompleteLatencyMs,
+        guardianLatencyMs: measuredGuardianLatencyMs,
+        flowUpdatedAtMs: Date.now()
       }));
 
       setLastUpdated(0);

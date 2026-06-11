@@ -947,7 +947,16 @@ function LiveFlowPanel({ incident, lastUpdated, isAdmin }) {
       ? Math.max(0, liveNowMs - flowStartedAtMs)
       : 0;
 
-  const elapsedMs = currentElapsedMs;
+  const completedAtMs =
+    isCompleted && typeof incident.flowUpdatedAtMs === "number"
+      ? incident.flowUpdatedAtMs
+      : null;
+
+  const elapsedMs =
+    isCompleted && completedAtMs && flowStartedAtMs
+      ? Math.max(0, completedAtMs - flowStartedAtMs)
+      : currentElapsedMs;
+
   const elapsedSec = (elapsedMs / 1000).toFixed(1);
 
   const apiLatencyMs = incident.apiLatencyMs || null;

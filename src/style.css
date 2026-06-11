@@ -1392,15 +1392,9 @@ button:disabled {
 }
 
 @keyframes livePulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(255, 95, 15, 0.38);
-  }
-  70% {
-    box-shadow: 0 0 0 10px rgba(255, 95, 15, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(255, 95, 15, 0);
-  }
+  0% { box-shadow: 0 0 0 0 rgba(255, 95, 15, 0.38); }
+  70% { box-shadow: 0 0 0 10px rgba(255, 95, 15, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 95, 15, 0); }
 }
 
 @media (max-width: 1200px) {

@@ -1,5 +1,5 @@
 ---
-title: SilverGuard Guardian
+title: SeniorSafety
 emoji: 🛡️
 colorFrom: yellow
 colorTo: red
@@ -97,14 +97,14 @@ docker run --rm -p 7860:7860 `
 대상 예시:
 
 ```text
-https://huggingface.co/spaces/ukss/silverguard-guardian-docker
+https://huggingface.co/spaces/ukss/SeniorSafety
 ```
 
 배포 절차:
 
 1. Hugging Face에서 새 Space를 생성합니다.
 2. Owner를 `ukss`로 선택합니다.
-3. Space name을 `silverguard-guardian-docker`로 지정합니다.
+3. Space name을 `SeniorSafety`로 지정합니다.
 4. SDK를 `Docker`로 선택합니다.
 5. Settings -> Variables and secrets에 `API_BASE_URL`, `API_KEY`를 secret으로 등록합니다.
 6. 이 저장소를 Space Git remote로 push합니다.
@@ -112,14 +112,14 @@ https://huggingface.co/spaces/ukss/silverguard-guardian-docker
 예시:
 
 ```bash
-git remote add hf https://huggingface.co/spaces/ukss/silverguard-guardian-docker
+git remote add hf https://huggingface.co/spaces/ukss/SeniorSafety
 git push hf main
 ```
 
 이미 `origin`을 Hugging Face Space로 쓰고 있다면 다음처럼 원격 URL을 바꿀 수 있습니다.
 
 ```bash
-git remote set-url origin https://huggingface.co/spaces/ukss/silverguard-guardian-docker
+git remote set-url origin https://huggingface.co/spaces/ukss/SeniorSafety
 git push origin main
 ```
 

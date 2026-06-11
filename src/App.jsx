@@ -438,27 +438,27 @@ export default function App() {
   }
 
   async function createFallEvent() {
-    const now = new Date().toISOString();
+    const nowIso = new Date().toISOString();
 
     const payload = {
       residentId: "R1001",
       location: "3층 복도 체련실 앞",
-      detectedAt: now,
-      event_timestamp: now,
+      detectedAt: nowIso,
+      event_timestamp: nowIso,
       sourceType: "CCTV",
       severity: "HIGH"
     };
 
-    const flowStartTime = Date.now();
+    const flowStartedAtMs = Date.now();
     const payloadText = JSON.stringify(payload);
     const payloadBytes = new Blob([payloadText]).size;
 
     try {
       showToast("AWS로 낙상 이벤트를 전송 중입니다...");
 
-      const apiStartTime = performance.now();
+      const apiStartMs = performance.now();
       const result = await createFallEventApi(payload);
-      const apiLatencyMs = Math.round(performance.now() - apiStartTime);
+      const apiLatencyMs = Math.round(performance.now() - apiStartMs);
 
       const newIncident = {
         eventId: result.eventId || makeEventId(),
@@ -475,10 +475,10 @@ export default function App() {
         guardianNotification: "NOT_SENT",
         actionResult: "AWS API Gateway를 통해 낙상 사고가 접수됨",
 
-        flowStartedAtMs: flowStartTime,
+        flowStartedAtMs,
         flowUpdatedAtMs: Date.now(),
-        apiLatencyMs: apiLatencyMs,
-        payloadBytes: payloadBytes,
+        apiLatencyMs,
+        payloadBytes,
         statusUpdateLatencyMs: null,
         completeLatencyMs: null,
         guardianLatencyMs: null
@@ -510,7 +510,7 @@ export default function App() {
     if (incident.status !== "RECEIVED") return;
 
     try {
-      const patchStartTime = performance.now();
+      const patchStartMs = performance.now();
 
       await updateFallEventStatusApi(incident.eventId, {
         status: "IN_PROGRESS",
@@ -521,7 +521,7 @@ export default function App() {
         actionResult: "시설 담당자가 현장 대응을 시작함"
       });
 
-      const measuredStatusLatencyMs = Math.round(performance.now() - patchStartTime);
+      const statusUpdateLatencyMs = Math.round(performance.now() - patchStartMs);
 
       setIncident((prev) => ({
         ...prev,
@@ -530,7 +530,7 @@ export default function App() {
         ack_at: new Date().toISOString(),
         escalation_level: 0,
         actionResult: "시설 담당자가 현장 대응을 시작함",
-        statusUpdateLatencyMs: measuredStatusLatencyMs,
+        statusUpdateLatencyMs,
         flowUpdatedAtMs: Date.now()
       }));
 
@@ -559,7 +559,7 @@ export default function App() {
     if (incident.status !== "IN_PROGRESS") return;
 
     try {
-      const completeStartTime = performance.now();
+      const completeStartMs = performance.now();
 
       await updateFallEventStatusApi(incident.eventId, {
         status: "COMPLETED",
@@ -568,13 +568,13 @@ export default function App() {
         actionResult: "현장 확인 및 초동 조치 완료"
       });
 
-      const measuredCompleteLatencyMs = Math.round(performance.now() - completeStartTime);
+      const completeLatencyMs = Math.round(performance.now() - completeStartMs);
 
       let guardianSent = false;
-      let measuredGuardianLatencyMs = null;
+      let guardianLatencyMs = null;
 
       try {
-        const guardianStartTime = performance.now();
+        const guardianStartMs = performance.now();
 
         await sendGuardianNotificationApi(incident.eventId, {
           notifyGuardian: true,
@@ -583,7 +583,7 @@ export default function App() {
           message: "안내 말씀 드립니다. 어르신 낙상 사고가 있었으나 초동 조치 후 안정 취하시는 상태입니다."
         });
 
-        measuredGuardianLatencyMs = Math.round(performance.now() - guardianStartTime);
+        guardianLatencyMs = Math.round(performance.now() - guardianStartMs);
         guardianSent = true;
       } catch (guardianErr) {
         console.warn("보호자 알림 요청 실패:", guardianErr);
@@ -594,8 +594,8 @@ export default function App() {
         status: "COMPLETED",
         guardianNotification: guardianSent ? "SENT" : "FAILED",
         actionResult: "현장 확인 및 초동 조치 완료",
-        completeLatencyMs: measuredCompleteLatencyMs,
-        guardianLatencyMs: measuredGuardianLatencyMs,
+        completeLatencyMs,
+        guardianLatencyMs,
         flowUpdatedAtMs: Date.now()
       }));
 
@@ -953,6 +953,369 @@ export default function App() {
 
 
 function LiveFlowPanel({ incident, lastUpdated, isAdmin }) {
+  const [liveNowMs, setLiveNowMs] = useState(Date.now());
+
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      setLiveNowMs(Date.now());
+    }, 100);
+
+    return () => clearInterval(intervalId);
+  }, []);
+
+  const isActive = incident.status !== "STABLE";
+  const isReceived = incident.status === "RECEIVED";
+  const isProgress = incident.status === "IN_PROGRESS";
+  const isCompleted = incident.status === "COMPLETED";
+
+  const flowStartedAtMs =
+    typeof incident.flowStartedAtMs === "number"
+      ? incident.flowStartedAtMs
+      : incident.detectedAt && incident.detectedAt !== "-"
+      ? Date.parse(incident.detectedAt)
+      : null;
+
+  const currentElapsedMs =
+    isActive && flowStartedAtMs
+      ? Math.max(0, liveNowMs - flowStartedAtMs)
+      : 0;
+
+  const elapsedMs = currentElapsedMs;
+  const elapsedSec = (elapsedMs / 1000).toFixed(1);
+
+  const apiLatencyMs = incident.apiLatencyMs || null;
+  const statusUpdateLatencyMs = incident.statusUpdateLatencyMs || null;
+  const completeLatencyMs = incident.completeLatencyMs || null;
+  const guardianLatencyMs = incident.guardianLatencyMs || null;
+
+  const payloadBytes = incident.payloadBytes || 360;
+  const payloadKb = (payloadBytes / 1024).toFixed(2);
+
+  const transferKbps =
+    apiLatencyMs && apiLatencyMs > 0
+      ? ((payloadBytes * 8) / apiLatencyMs).toFixed(1)
+      : isActive && elapsedMs > 0
+      ? ((payloadBytes * 8) / elapsedMs).toFixed(1)
+      : "0.0";
+
+  const stageTimes = {
+    event: 0,
+    api: apiLatencyMs || 300,
+    lambda: Math.max(apiLatencyMs || 300, 600),
+    ddb: Math.max(apiLatencyMs || 300, 900),
+    queue: Math.max(apiLatencyMs || 300, 1200)
+  };
+
+  const isStageDone = (ms) => isActive && elapsedMs >= ms;
+
+  const statusLabel = isCompleted
+    ? "COMPLETED"
+    : isProgress
+    ? "IN_PROGRESS"
+    : isReceived
+    ? "RECEIVED"
+    : "READY";
+
+  const formatSec = (ms) => `${(ms / 1000).toFixed(1)}s`;
+  const formatExact = (ms) => `${(ms / 1000).toFixed(2)}s`;
+
+  const flowProgress = isCompleted
+    ? 100
+    : isProgress
+    ? Math.min(90, 70 + elapsedMs / 180)
+    : isReceived
+    ? Math.min(70, elapsedMs / 18)
+    : 0;
+
+  const baseSteps = [
+    {
+      key: "source",
+      title: "현장 이벤트",
+      desc: "CCTV·IoT·직원 신고",
+      meta: incident.location || "3층 복도 체련실 앞",
+      doneAt: stageTimes.event
+    },
+    {
+      key: "api",
+      title: "API Gateway",
+      desc: "POST /fall-events",
+      meta: apiLatencyMs ? `실측 API 응답 ${apiLatencyMs}ms` : "AWS 응답 측정 중",
+      doneAt: stageTimes.api
+    },
+    {
+      key: "lambda",
+      title: "Ingest Lambda",
+      desc: "검증 · 멱등성 · Δt 계산",
+      meta: "event_timestamp 기반 지연 확인",
+      doneAt: stageTimes.lambda
+    },
+    {
+      key: "ddb",
+      title: "DynamoDB 저장",
+      desc: "SilverTown-FallEvents",
+      meta: incident.eventId || "FE-DEMO-001",
+      doneAt: stageTimes.ddb
+    },
+    {
+      key: "queue",
+      title: "SQS/SNS 알림",
+      desc: "NotificationQueue → SNS",
+      meta: "간호사 · 요양보호사 · 관리자",
+      doneAt: stageTimes.queue
+    }
+  ];
+
+  const flowSteps = [
+    ...baseSteps.map((step, index) => {
+      const done = isStageDone(step.doneAt);
+      const progress =
+        isActive && !done && elapsedMs >= Math.max(0, step.doneAt - 250);
+
+      return {
+        ...step,
+        index,
+        state: done ? "done" : progress ? "progress" : "idle",
+        time: done ? formatSec(step.doneAt) : progress ? `${elapsedSec}s` : "대기"
+      };
+    }),
+    {
+      key: "ack",
+      index: 5,
+      title: "담당자 확인",
+      desc: "PATCH /status",
+      meta: statusUpdateLatencyMs
+        ? `상태 변경 실측 ${statusUpdateLatencyMs}ms`
+        : incident.ack_status || "UNACKNOWLEDGED",
+      state: isCompleted || isProgress ? "done" : isReceived ? "progress" : "idle",
+      time: statusUpdateLatencyMs
+        ? formatExact(statusUpdateLatencyMs)
+        : isReceived
+        ? `${elapsedSec}s`
+        : "대기"
+    },
+    {
+      key: "guardian",
+      index: 6,
+      title: "보호자 2차 안내",
+      desc: "guardian-notification",
+      meta: guardianLatencyMs
+        ? `보호자 알림 실측 ${guardianLatencyMs}ms`
+        : incident.guardianNotification || "NOT_SENT",
+      state: isCompleted ? "done" : isProgress ? "progress" : "idle",
+      time: guardianLatencyMs
+        ? formatExact(guardianLatencyMs)
+        : isCompleted
+        ? `${elapsedSec}s`
+        : "대기"
+    }
+  ];
+
+  const liveLogs = [];
+
+  if (!isActive) {
+    liveLogs.push({
+      time: "0.0s",
+      text: "사고 발생 버튼을 누르면 실시간 로그가 생성됩니다.",
+      on: false
+    });
+  }
+
+  if (isActive) {
+    liveLogs.push({
+      time: "0.0s",
+      text: "낙상 이벤트 생성 및 API 호출 시작",
+      on: true
+    });
+  }
+
+  if (isStageDone(stageTimes.api)) {
+    liveLogs.push({
+      time: apiLatencyMs ? formatExact(apiLatencyMs) : formatSec(stageTimes.api),
+      text: apiLatencyMs
+        ? `API Gateway 응답 수신 · ${apiLatencyMs}ms`
+        : "API Gateway가 POST /fall-events 요청 수신",
+      on: true
+    });
+  }
+
+  if (isStageDone(stageTimes.lambda)) {
+    liveLogs.push({
+      time: formatSec(stageTimes.lambda),
+      text: "Ingest Lambda 검증 및 Δt 계산 완료",
+      on: true
+    });
+  }
+
+  if (isStageDone(stageTimes.ddb)) {
+    liveLogs.push({
+      time: formatSec(stageTimes.ddb),
+      text: "DynamoDB SilverTown-FallEvents 저장 완료",
+      on: true
+    });
+  }
+
+  if (isStageDone(stageTimes.queue)) {
+    liveLogs.push({
+      time: formatSec(stageTimes.queue),
+      text: "NotificationQueue 적재 및 SNS 알림 요청 완료",
+      on: true
+    });
+  }
+
+  if (isProgress || isCompleted) {
+    liveLogs.push({
+      time: statusUpdateLatencyMs ? formatExact(statusUpdateLatencyMs) : `${elapsedSec}s`,
+      text: statusUpdateLatencyMs
+        ? `담당자 확인 상태 업데이트 완료 · ${statusUpdateLatencyMs}ms`
+        : "담당자 확인 처리 중",
+      on: true
+    });
+  }
+
+  if (isCompleted) {
+    liveLogs.push({
+      time: guardianLatencyMs ? formatExact(guardianLatencyMs) : `${elapsedSec}s`,
+      text: guardianLatencyMs
+        ? `보호자 2차 안내 요청 완료 · ${guardianLatencyMs}ms`
+        : "대응 완료 및 보호자 안내 요청 완료",
+      on: true
+    });
+  }
+
+  return (
+    <aside className="live-flow-panel">
+      <div className="live-flow-header">
+        <div>
+          <p className="eyebrow">LIVE SERVERLESS FLOW</p>
+          <h2>초동대응 실시간 흐름</h2>
+        </div>
+        <span className={`flow-status ${isActive ? "active" : ""}`}>
+          {statusLabel}
+        </span>
+      </div>
+
+      <section className="live-metrics-grid">
+        <div className="live-metric-card primary">
+          <span>실시간 경과</span>
+          <strong>{isActive ? `${elapsedSec}s` : "0.0s"}</strong>
+          <p>사고 발생 후 현재까지</p>
+        </div>
+
+        <div className="live-metric-card">
+          <span>API 응답</span>
+          <strong>{apiLatencyMs ? `${apiLatencyMs}ms` : isActive ? "측정 중" : "-"}</strong>
+          <p>Hugging Face → AWS</p>
+        </div>
+
+        <div className="live-metric-card">
+          <span>Payload</span>
+          <strong>{payloadKb}KB</strong>
+          <p>전송 요청 크기</p>
+        </div>
+
+        <div className="live-metric-card">
+          <span>전송 속도</span>
+          <strong>{transferKbps}kbps</strong>
+          <p>요청 크기 / 응답시간</p>
+        </div>
+      </section>
+
+      <section className="flow-summary-card">
+        <div>
+          <span>전체 플로우</span>
+          <strong>{isActive ? `${elapsedSec}초` : "대기 중"}</strong>
+        </div>
+
+        <div className="live-progress-track">
+          <div
+            className="live-progress-fill"
+            style={{ width: `${Math.min(100, flowProgress)}%` }}
+          />
+        </div>
+
+        <p>
+          API Gateway → Lambda → DynamoDB → SQS/SNS → 담당자 알림
+        </p>
+      </section>
+
+      <section className="flow-three-columns">
+        <div className={`flow-big-card ${isActive ? "on" : ""}`}>
+          <div className="flow-card-icon">①</div>
+          <h3>현장 이벤트</h3>
+          <p>CCTV / IoT 센서 / 직원 신고 앱</p>
+          <strong>{incident.location || "3층 복도 체련실 앞"}</strong>
+        </div>
+
+        <div className={`flow-big-card ${isActive ? "on" : ""}`}>
+          <div className="flow-card-icon">②</div>
+          <h3>AWS 처리</h3>
+          <p>API Gateway · Lambda · DynamoDB</p>
+          <strong>{apiLatencyMs ? `실측 ${apiLatencyMs}ms` : "서버 처리 3초 이내 목표"}</strong>
+        </div>
+
+        <div className={`flow-big-card ${isActive ? "on" : ""}`}>
+          <div className="flow-card-icon">③</div>
+          <h3>담당자 알림</h3>
+          <p>SQS · SNS · 보호자 2차 안내</p>
+          <strong>{incident.guardianNotification}</strong>
+        </div>
+      </section>
+
+      <section className="flow-pipeline">
+        {flowSteps.map((step) => (
+          <div className={`flow-step ${step.state}`} key={step.key}>
+            <div className="flow-step-mark">
+              {step.state === "done" ? "✓" : step.index + 1}
+            </div>
+
+            <div className="flow-step-body">
+              <div className="flow-step-top">
+                <strong>{step.title}</strong>
+                <em>{step.time}</em>
+              </div>
+              <p>{step.desc}</p>
+              <small>{step.meta}</small>
+            </div>
+          </div>
+        ))}
+      </section>
+
+      <section className="flow-log-card">
+        <div className="flow-log-title">
+          <h3>실시간 처리 로그</h3>
+          <span>{isActive ? `${elapsedSec}초 경과` : "대기 중"}</span>
+        </div>
+
+        <div className="flow-log-list">
+          {liveLogs.map((item, idx) => (
+            <div className={`flow-log-item ${item.on ? "on" : ""}`} key={`${item.text}-${idx}`}>
+              <b>{item.time}</b>
+              <p>{item.text}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="flow-kpi-strip">
+        <div>
+          <span>AS-IS</span>
+          <strong>14분</strong>
+          <p>수기 전파</p>
+        </div>
+        <div>
+          <span>TO-BE</span>
+          <strong>3초 이내</strong>
+          <p>서버리스 처리</p>
+        </div>
+        <div>
+          <span>장애 추적</span>
+          <strong>DLQ</strong>
+          <p>실패 이벤트 보관</p>
+        </div>
+      </section>
+    </aside>
+  );
+}) {
   const isActive = incident.status !== "STABLE";
   const isReceived = incident.status === "RECEIVED";
   const isProgress = incident.status === "IN_PROGRESS";

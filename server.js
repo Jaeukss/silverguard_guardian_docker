@@ -11,19 +11,24 @@ const API_KEY = process.env.API_KEY;
 app.use(express.json());
 
 function awsHeaders(extra = {}) {
-  return {
+  const headers = {
     "Content-Type": "application/json",
-    "x-api-key": API_KEY,
     ...extra
   };
+
+  if (API_KEY) {
+    headers["x-api-key"] = API_KEY;
+  }
+
+  return headers;
 }
 
 async function forwardToAws(res, pathValue, options) {
   try {
-    if (!API_BASE_URL || !API_KEY) {
+    if (!API_BASE_URL) {
       return res.status(500).json({
         errorCode: "MISSING_ENV",
-        errorMessage: "API_BASE_URL 또는 API_KEY가 Hugging Face Space에 설정되지 않았습니다."
+        errorMessage: "API_BASE_URL is not configured in Hugging Face Space."
       });
     }
 

@@ -35,17 +35,24 @@ SilverGuard Guardian은 낙상 이벤트 접수, 시설 담당자 대응, 보호
 Browser
   -> React/Vite UI
   -> Express API proxy (/api/*)
-  -> External API configured by API_BASE_URL and API_KEY
+  -> External API configured by API_BASE_URL and optional API_KEY
 ```
 
 프론트엔드는 직접 외부 API 키를 사용하지 않습니다. 서버인 `server.js`가 환경변수를 읽어 외부 API로 요청을 전달합니다.
 
-## 필수 환경변수
+## 환경변수
 
-배포 환경에는 다음 값을 secret으로 등록해야 합니다.
+배포 환경에는 다음 값을 등록해야 합니다.
 
 ```env
 API_BASE_URL=https://your-api.example.com
+```
+
+`API_BASE_URL`은 민감값이 아니면 Hugging Face Space variable로 등록합니다.
+
+외부 API가 `x-api-key` 인증을 요구할 때만 다음 값을 secret으로 추가 등록합니다.
+
+```env
 API_KEY=your-api-key
 ```
 
@@ -76,7 +83,6 @@ npm run start
 docker build -t silverguard-guardian .
 docker run --rm -p 7860:7860 \
   -e API_BASE_URL=https://your-api.example.com \
-  -e API_KEY=your-api-key \
   silverguard-guardian
 ```
 
@@ -86,7 +92,6 @@ Windows PowerShell 예시:
 docker build -t silverguard-guardian .
 docker run --rm -p 7860:7860 `
   -e API_BASE_URL="https://your-api.example.com" `
-  -e API_KEY="your-api-key" `
   silverguard-guardian
 ```
 
@@ -106,7 +111,7 @@ https://huggingface.co/spaces/ukss/SeniorSafety
 2. Owner를 `ukss`로 선택합니다.
 3. Space name을 `SeniorSafety`로 지정합니다.
 4. SDK를 `Docker`로 선택합니다.
-5. Settings -> Variables and secrets에 `API_BASE_URL`, `API_KEY`를 secret으로 등록합니다.
+5. Settings -> Variables and secrets에 `API_BASE_URL`을 variable로 등록합니다.
 6. 이 저장소를 Space Git remote로 push합니다.
 
 예시:

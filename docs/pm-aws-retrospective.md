@@ -1,144 +1,145 @@
 # PM 및 AWS 구현 회고
 
-## 작성 근거
+## 프로젝트 배경
 
-이 문서는 첨부된 PPT 3개와 스크린샷 10개에서 확인된 사실만 기준으로 작성했다.
+SilverGuard는 실버타운에서 낙상 사고가 발생했을 때 시설 담당자와 보호자에게 빠르게 상황을 전달하고, 사고 접수부터 조치 완료까지의 과정을 자동으로 기록하는 초동대응 플랫폼이다.
 
-| 자료 | 확인 범위 |
-| --- | --- |
-| `DX_13조_설계.pptx` | 10장 전체 확인 |
-| `DX_13조_구현.pptx` | 21장 전체 확인 |
-| `DX_13조_발표.pptx` | 24장 전체 확인 |
-| `screenshots/` | 앱 로그인, 관리자 대응, 서버리스 흐름, 완료 이력, 보호자 화면 확인 |
+처음 문제를 정의할 때 가장 크게 본 지점은 야간 근무 환경이었다. 야간 당직 간호사 1명이 약 40~42명의 입주민을 담당하고, 낙상 위험이 높은 시간대는 02:00~05:00에 집중된다. 기존 방식에서는 사고가 발생하면 전화나 무전으로 여러 사람에게 직접 연락해야 했고, 그 과정에서 환자 곁을 떠나야 했다. 사고 기록도 수기로 남겨야 해서 평균 15분 정도가 소요되는 구조였다.
 
-## 프로젝트 요약
+그래서 이 프로젝트의 핵심 목표를 “낙상 신호를 받으면 3초 이내에 담당자에게 전파하고, 사고 이력과 조치 상태는 자동으로 남기는 것”으로 잡았다. 단순히 알림을 보내는 앱이 아니라, 실제 운영자가 사고를 접수하고 확인하고 보호자에게 안내하는 흐름까지 이어지는 PoC를 만드는 것이 목표였다.
 
-SilverGuard는 실버타운 낙상 사고 발생 시 담당자와 보호자에게 초동 대응 흐름을 자동 전파하고, 사고 이력과 조치 상태를 AWS 기반으로 기록하는 서버리스 플랫폼이다.
+## 내가 맡은 역할
 
-PPT에서 확인된 문제 정의는 다음과 같다.
+나는 PM 역할과 AWS 구현을 함께 맡았다.
 
-- 야간 당직 간호사 1명이 약 40~42명 입주민을 담당한다.
-- 02:00~05:00은 낙상 사고 위험이 큰 시간대다.
-- 기존 방식은 무전·전화 연락 중 환자 곁을 떠나야 해 초동 대응이 지연된다.
-- 수기 사고 기록 작성에 평균 15분이 소요된다.
-- 발표 자료는 기존 전파 시간을 14분, 목표 전파 시간을 3초로 제시한다.
+PM으로서는 문제 정의, 요구사항 우선순위, API 범위, 데모 시나리오, 발표 메시지를 하나의 흐름으로 묶었다. 기능을 많이 넣는 것보다 “낙상 사고 초동대응에 반드시 필요한 흐름”을 먼저 완성하는 쪽으로 범위를 조정했다.
 
-## 내 역할
+AWS 구현에서는 API Gateway, Lambda, DynamoDB, SQS, SNS, CloudWatch, DLQ, EventBridge를 연결해 서버리스 처리 흐름을 구성했다. 낙상 이벤트가 들어오면 검증하고, 저장하고, 담당자에게 알리고, 상태 변경을 기록하고, 보호자 2차 안내까지 이어지도록 설계했다.
 
-역할은 PM과 AWS 구현이다. 발표 자료에는 팀 역할 중 `PM 윤재욱`이 명시되어 있고, 구현 자료에는 AWS 구성 요소로 API Gateway, Lambda, DynamoDB, SQS, SNS, CloudWatch, DLQ, EventBridge가 제시되어 있다.
+## 내가 구현한 흐름
 
-PM 역할에서는 문제 정의, 요구사항 우선순위, API 범위, 데모 흐름, 발표 메시지를 연결하는 역할이 중요했다. AWS 구현 역할에서는 낙상 이벤트가 들어온 뒤 저장, 알림, 상태 변경, 보호자 안내까지 이어지는 서버리스 흐름을 실제 동작 가능한 구조로 구성하는 것이 핵심이었다.
+전체 흐름은 다음과 같이 잡았다.
 
-## 기술 역량 정리
+```text
+CCTV / IoT / 직원 앱
+  -> API Gateway
+  -> IngestLambda
+  -> DynamoDB SilverTown-FallEvents
+  -> SQS NotificationQueue
+  -> NotificationLambda
+  -> SNS
+  -> 간호사 / 요양보호사 / 관리자 / 보호자
+```
 
-### 요구사항 구조화
+API는 5개로 정리했다.
 
-설계 PPT의 MoSCoW 기준에 따라 필수 범위를 `Must Have`로 좁혔다. 필수 범위는 낙상 이벤트 신규 접수, 이벤트 검증 및 저장, 담당자 1차 알림, 현장 조치 상태 업데이트, 실패 추적 및 운영 모니터링이다.
+- `POST /fall-events`: 낙상 사고 신규 접수
+- `GET /fall-events`: 전체 사고 목록 조회
+- `GET /fall-events/{eventId}`: 특정 사고 상세 조회
+- `PATCH /fall-events/{eventId}/status`: 현장 조치 상태 업데이트
+- `POST /fall-events/{eventId}/guardian-notification`: 보호자 2차 안내 발송
 
-이 결정은 기능을 많이 넣는 방향이 아니라, 낙상 사고 초동 대응에 직접 필요한 흐름을 먼저 완성하는 방향이다. Bedrock AI 위험도 분류, QuickSight 통계 대시보드, 자체 모바일 앱, EMR 연동은 이번 범위에서 제외했다.
+Lambda는 역할을 분리했다.
 
-### API 및 서버리스 구현
+- `IngestLambda`: 낙상 이벤트 수신, 필수값 검증, 멱등성 확인, 감지 지연 계산, DynamoDB 저장, SQS 적재
+- `NotificationLambda`: SQS 메시지 처리, SNS 알림 발송, 민감정보 마스킹, 보호자 2차 알림, 실패 시 DLQ 격리
+- `EscalationLambda`: 미응답 사고를 주기적으로 확인하고 L1/L2/L3 단계로 경보 확대
+- `HeartbeatLambda`: 5분 주기로 서비스 생존성 메트릭 발행
 
-구현 자료 기준 API는 5개다.
+## 데이터 모델링
 
-- `POST /fall-events`
-- `GET /fall-events`
-- `GET /fall-events/{eventId}`
-- `PATCH /fall-events/{eventId}/status`
-- `POST /fall-events/{eventId}/guardian-notification`
+핵심 테이블은 `SilverTown-FallEvents`로 잡았다. 사고를 단순 로그로 저장하는 것이 아니라, 운영자가 상태를 추적할 수 있도록 필드를 나눴다.
 
-Lambda는 4종으로 역할을 분리했다.
+- `eventId`: 사고 고유 ID
+- `detectedAt`: API가 사고를 접수한 시각
+- `event_timestamp`: 센서가 사고를 감지한 시각
+- `residentId`: 입주민 식별자
+- `location`: 사고 발생 위치
+- `sourceType`: CCTV, 센서, 직원 신고 등 이벤트 출처
+- `severity`: 심각도
+- `status`: `RECEIVED -> IN_PROGRESS -> COMPLETED -> ESCALATED`
+- `ack_status`: `UNACKNOWLEDGED -> ACKNOWLEDGED`
+- `ack_at`: 담당자 확인 시각
+- `escalation_level`: L0~L3 단계
+- `actionResult`: 현장 조치 결과
 
-- `IngestLambda`: 낙상 이벤트 수신, 필수값 검증, 멱등성 확인, `event_timestamp`와 `detectedAt` 기반 지연 계산, DynamoDB 저장, SQS 적재
-- `NotificationLambda`: SQS 메시지 폴링, SNS 알림 발송, 민감정보 마스킹, 보호자 2차 알림, 실패 시 DLQ 격리
-- `EscalationLambda`: EventBridge 1분 주기 기반 미응답 사고 확인, L1/L2/L3 경보 확대
-- `HeartbeatLambda`: 5분 주기 생존성 메트릭 발행, 10분 이상 미수신 시 알람
+조회 패턴도 미리 나눴다. 미해결 사고 목록, 특정 입주민의 과거 사고 이력, 감지 지연 분석은 각각 다른 조회 목적이기 때문에 GSI를 3개로 설계했다.
 
-### 데이터 모델링
+## 어려웠던 점과 해결
 
-핵심 테이블은 `SilverTown-FallEvents`다. 주요 필드는 `eventId`, `detectedAt`, `event_timestamp`, `residentId`, `location`, `sourceType`, `severity`, `status`, `ack_status`, `ack_at`, `escalation_level`, `actionResult`로 설계됐다.
+### 현장 문제를 구현 가능한 범위로 줄이는 일
 
-GSI는 3개 목적이 확인된다.
+처음에는 문제 범위가 넓었다. 낙상 감지 AI, 보호자 알림, 사고 기록, 관리자 대시보드, 통계까지 모두 필요해 보였다. 하지만 제한된 기간 안에 작동하는 결과물을 만들려면 핵심 흐름을 먼저 고정해야 했다.
 
-- `status + detectedAt`: 미해결 사고 목록 조회
-- `residentId + detectedAt`: 특정 입주민 과거 낙상 이력 조회
-- `event_timestamp + detectedAt`: 감지 지연 구간 조회 및 SLA 위반 모니터링
+그래서 요구사항을 Must / Should / Could / Won't로 나눴다. 낙상 이벤트 접수, DynamoDB 저장, 담당자 알림, 상태 업데이트, 실패 추적은 Must로 두고, 보호자 2차 안내와 목록 조회는 Should로 분리했다. Bedrock AI 위험도 분류, QuickSight 통계 대시보드, EMR 연동은 다음 단계로 미뤘다.
 
-### 운영 모니터링 설계
+이렇게 범위를 줄이니 개발과 발표 메시지가 모두 명확해졌다. “우리는 낙상을 직접 감지하는 AI를 만든 것이 아니라, 감지 이후 초동대응을 자동화했다”는 포지션을 분명히 할 수 있었다.
 
-CloudWatch 기준은 지연, 오류율, 실패 추적으로 분류했다.
+### 빠른 알림과 기록 보존을 동시에 만족시키는 일
 
-- 지연: API Gateway `Latency`, `IntegrationLatency`, Lambda `Duration`, `DetectionDelayDeltaSeconds`
-- 오류율: `4XXError`, `5XXError`, `429/503` 로그 필터, Lambda `Errors`
-- 실패 추적: SQS backlog, DLQ, SNS 실패, Heartbeat 미수신
+낙상 대응은 빠르게 알리는 것만으로 끝나지 않는다. 사고가 언제 접수됐고, 누가 확인했고, 언제 조치가 끝났는지가 남아야 한다. 그래서 단순 알림 앱이 아니라 상태 전이를 중심으로 설계했다.
 
-운영 기준은 p95 3초, `5XX` 1% 초과, DLQ 1건 이상, SNS 실패 1건 이상, Heartbeat 10분 미수신이다.
+`RECEIVED`, `IN_PROGRESS`, `COMPLETED`, `ESCALATED` 상태를 두고, 담당자 확인 여부는 `ack_status`와 `ack_at`으로 따로 관리했다. 이 구조 덕분에 담당자 화면에서는 현재 처리 상태를 보여주고, 보호자 화면에서는 조치 완료 여부만 간결하게 전달할 수 있었다.
 
-### 데모 검증
+### 장애를 “로그 확인”이 아니라 “운영 기준”으로 바꾸는 일
 
-스크린샷에서 확인된 실제 데모 값은 다음과 같다.
+CloudWatch 지표는 너무 많다. 모든 지표를 다 보면 운영자가 무엇을 먼저 봐야 하는지 알기 어렵다. 그래서 지표를 세 가지로 줄였다.
 
-- `screenshots/03-incident-received-pipeline.png`: 낙상 사고 접수 후 API Gateway 응답 약 700ms, DynamoDB 저장, SQS/SNS 알림 단계 표시
-- `screenshots/04-response-completed-guardian-sent.png`: 보호자 2차 안내 `SENT`, 보호자 알림 실측 616ms, 전체 완료 40.1초 표시
-- `screenshots/05-event-history-completed.png`: 완료 이력에 `COMPLETED` 상태 표시
-- `screenshots/06-guardian-completed-home.png`: 보호자 화면에 조치 완료 및 발송 완료 상태 표시
+- 지연: p95 3초 초과, 감지 지연 `Δt > 10초`
+- 오류: `5XX` 1% 초과, `503` 1건 이상
+- 실패 추적: DLQ 1건 이상, SNS 실패 1건 이상, Heartbeat 10분 미수신
 
-단, 40.1초는 전체 데모 완료 시간으로 보이며, 시스템 API 응답 시간 700ms와 직접 동일한 지표가 아니다. 전체 완료 시간에는 담당자 확인과 대응 완료 버튼 조작 같은 사용자 조작 시간이 포함된다.
+이 기준을 두니 장애 대응도 명확해졌다. `429`는 센서 폭주나 중복 호출 문제로 보고, `503`은 서버리스 구성요소 장애 가능성으로 분리해서 대응할 수 있게 했다.
 
-## 어려웠던 점
+### 배포 환경 차이로 생긴 API Key 오류
 
-### 현장 문제를 기술 범위로 바꾸는 과정
+Hugging Face에 새 Space를 만들었을 때 처음에는 API 호출이 실패했다. 원인은 코드 문제가 아니라 환경변수 차이였다. 기존에 정상 동작하던 배포 환경은 AWS Lambda에서 요구하는 `API_KEY`를 secret으로 가지고 있었고, 새 Space에는 그 값이 없었다.
 
-초기 문제는 “낙상 사고 대응이 늦다”였지만, 구현 가능한 범위로 바꾸려면 API, 상태값, 알림 흐름, 장애 대응 기준으로 쪼개야 했다. 이를 해결하기 위해 MoSCoW 우선순위를 사용했고, 핵심 범위를 5개 API와 4개 Lambda로 고정했다.
+문제를 해결하기 위해 기존 코드가 `x-api-key` 헤더를 보내는 구조인지 확인했고, AWS Lambda 환경변수에서 같은 목적의 키가 사용되고 있음을 확인했다. 이후 Hugging Face Space에 `API_KEY`를 secret으로 등록하고 재시작해 API Key 오류를 해결했다. 실제 secret 값은 문서와 저장소에 남기지 않았다.
 
-### 빠른 알림과 기록 보존을 동시에 만족시키는 구조
+## 데이터 기반으로 판단한 부분
 
-낙상 대응은 빠르게 알리는 것만으로 끝나지 않고, 누가 언제 확인했는지 기록도 남아야 한다. 그래서 `status`, `ack_status`, `ack_at`, `escalation_level`, `actionResult`를 FallEvents에 포함했고, `RECEIVED → IN_PROGRESS → COMPLETED → ESCALATED` 상태 흐름을 사용했다.
+서버리스 구조를 선택한 이유는 비용과 요청 패턴이 맞았기 때문이다. 낙상 이벤트는 24시간 일정하게 트래픽이 들어오는 서비스가 아니라, 사고가 발생했을 때 짧게 처리되는 이벤트성 요청이다. EC2를 상시 운영하면 요청이 없어도 비용이 발생하지만, Lambda 중심 구조는 호출 기반으로 과금된다.
 
-### 장애를 단일 로그가 아니라 운영 기준으로 보는 과정
+프로젝트에서는 EC2 상시 운영 월 $50, 서버리스 월 $5 내외를 비교 기준으로 잡았다. 이 기준이면 월 비용은 약 90% 줄어든다. 그래서 API Gateway, Lambda, DynamoDB, SQS, SNS를 조합한 서버리스 구조가 PoC에는 더 적합하다고 판단했다.
 
-처음부터 모든 CloudWatch 지표를 다 보면 운영자가 판단하기 어렵다. 구현 자료에서는 지표를 지연, 오류율, 실패 추적 3개 축으로 줄였다. 이 방식으로 `429`는 센서 폭주나 중복 호출, `503`은 서버리스 구성요소 장애 신호로 분리해 대응하도록 설계했다.
+운영 지표도 숫자로 기준을 잡았다.
 
-### 배포 환경 변수 불일치
+- 목표 전파 시간: 3초 이내
+- 기존 전파 시간: 14분
+- 수기 기록 시간: 평균 15분
+- 자동 기록 목표: 0분
+- Heartbeat 미수신 알람: 10분
+- RTO 목표: 10분
+- RPO 목표: 0건
 
-이번 배포 과정에서 `SeniorSafety` Hugging Face Space에는 처음에 `API_KEY` secret이 없었다. 기존 정상 동작 Space의 공개 `server.js`는 `API_KEY`를 필수로 요구했고, AWS Lambda 환경 변수에서 동일한 목적의 `API_KEY`가 확인됐다. 해당 값을 Hugging Face secret으로 등록하고 Space를 재시작해 API Key 오류를 해결했다. 실제 secret 값은 문서와 저장소에 기록하지 않는다.
+데모 화면에서는 API Gateway 응답 약 700ms, 보호자 알림 요청 약 616ms가 확인됐다. 최종 완료 시간 40.1초는 시스템 처리 시간만이 아니라 담당자가 대응 시작과 완료 버튼을 누르는 시간이 포함된 전체 데모 흐름 시간으로 봤다.
 
 ## 부족했던 점
 
-발표 PPT의 한계 슬라이드에서 확인된 현재 버전의 부족한 점은 다음과 같다.
+이번 버전에서 부족했던 점도 명확하다.
 
-- 낙상 감지 AI 부재: 외부 AI/CCTV 이벤트에 의존하고, 자체 오탐 필터링 로직은 미구현
-- 단일 시설 PoC 규모: 월 트래픽 1,500건 가정이며 멀티테넌트와 대규모 동시 사고는 미검증
-- CI/CD 파이프라인 부재: 현재 수동 배포이며 CodePipeline 또는 GitHub Actions 자동화 미적용
-- 실제 SMS/Email 비용: 국내 SMS 비용이 높아 카카오 알림톡 같은 대체 채널 검토 필요
-- Cognito Authorizer 미구현: 현재 API Key 기반이며 JWT와 역할별 접근 제어가 필요
-- 전용 모바일 앱 부재: 현장 직원은 전용 앱 없이 알림 수신에 의존
+- 낙상 감지 AI는 직접 구현하지 않았고, 외부 CCTV나 센서 이벤트에 의존했다.
+- 단일 시설 PoC 규모라 멀티테넌트와 대규모 동시 사고는 아직 검증하지 못했다.
+- CI/CD가 없어 배포가 수동으로 진행됐다.
+- 인증은 API Key 중심이라 Cognito 기반 역할별 접근 제어가 필요하다.
+- SNS SMS는 실운영 비용이 높을 수 있어 카카오 알림톡 같은 대체 채널 검토가 필요하다.
+- 현장 직원용 전용 모바일 앱은 없고, 웹 화면과 알림 흐름 중심으로 구현했다.
 
-## 해결 방향
+## 다음 개선 방향
 
-발표 PPT의 로드맵 기준 개선 순서는 다음과 같다.
+다음 단계는 기능 확장보다 운영 안정성부터 잡는 순서가 맞다.
 
-1. Phase 1: CI/CD 파이프라인 구축, Cognito JWT 기반 역할별 접근 제어, 오탐 필터링, SMS 채널 대체 검토
-2. Phase 2: CloudWatch Synthetics 외부 모니터링, QuickSight 사고 통계 대시보드, 멀티테넌트 확장, Bedrock AI 위험도 자동 분류
-3. Phase 3: 전용 간호사 모바일 앱, EMR 연동, 실시간 위치 추적, B2B SaaS 전환
+1. CI/CD 자동화: 수동 배포를 줄이고 배포 실수를 줄인다.
+2. Cognito 인증 강화: 관리자, 현장 직원, 보호자 권한을 분리한다.
+3. 오탐 필터링: 센서 오작동과 중복 신고를 줄인다.
+4. CloudWatch Synthetics: 외부에서 API 생존성을 주기적으로 점검한다.
+5. QuickSight 대시보드: 낙상 이력과 시간대별 사고 패턴을 분석한다.
+6. 멀티테넌트 구조: 시설별 데이터 분리와 권한 분리를 추가한다.
 
-개선 우선순위는 CI/CD 자동화, Cognito 인증 강화, 오탐 필터링 순서가 적절하다. 이유는 현재 한계 중 운영 안정성과 보안에 직접 영향을 주는 항목이 먼저 해결되어야 하기 때문이다.
+## 포트폴리오용 요약
 
-## 데이터 기반 의사결정
-
-| 결정 | 근거 |
-| --- | --- |
-| 서버리스 선택 | 발표 PPT는 EC2 월 $50, Lambda 중심 서버리스 월 $5 내외를 제시했고, 낙상 이벤트가 간헐적 요청이라는 점을 근거로 서버리스가 비용 효율적이라고 설명한다. |
-| SQS/DLQ 사용 | 구현 PPT는 알림 폭주 완충, 3회 재시도 후 DLQ 격리, 실패 이벤트 수동 재처리를 근거로 제시한다. |
-| CloudWatch 중심 운영 | 구현 PPT는 p95 3초, 5XX 1%, DLQ 1건, Heartbeat 10분 미수신을 운영 판단 기준으로 제시한다. |
-| API 5개로 범위 고정 | 설계 PPT의 IDD와 MoSCoW에서 낙상 접수, 목록/상세 조회, 상태 변경, 보호자 2차 알림으로 API 범위를 분리했다. |
-| 보호자 알림을 2차로 분리 | 설계 PPT는 보호자 안심 알림을 Should Have로 분류했고, 구현 흐름에서는 현장 조치 후 보호자 안내를 발송하는 구조로 확인된다. |
-
-정량 근거 중 주의할 점도 있다. 발표 PPT에는 `EC2 월 $50 → Lambda 월 $5`, `월 $45 절감`, `연간 $1,344 절감`이 함께 나온다. 월 $45 절감이면 단순 연산상 연 $540이므로, 본 문서에서는 산술이 직접 맞는 `월 $50 → $5`, `약 90% 절감`만 판단 근거로 사용한다.
-
-## 포트폴리오용 요약 문장
-
-PM과 AWS 구현을 담당하며 실버타운 낙상 사고 초동 대응 문제를 5개 HTTP API와 4개 Lambda 기반 서버리스 아키텍처로 구현했다. 야간 1인 근무, 수기 기록 평균 15분, 기존 전파 14분이라는 현장 문제를 MoSCoW와 IDD로 구조화했고, Ingest Lambda, DynamoDB, SQS, SNS, CloudWatch, DLQ를 연결해 이벤트 접수부터 담당자 알림, 상태 변경, 보호자 2차 안내까지 동작하는 PoC를 완성했다. 운영 관점에서는 p95 3초, 5XX 1%, DLQ 1건, Heartbeat 10분 미수신 같은 기준을 정의해 장애 판단 기준을 명확히 했다.
+PM과 AWS 구현을 맡아 실버타운 낙상 사고 초동대응 플랫폼을 기획하고 구현했다. 야간 1인 근무, 수기 기록 평균 15분, 기존 전파 14분이라는 문제를 5개 HTTP API와 4개 Lambda 기반 서버리스 구조로 풀었다. Ingest Lambda, DynamoDB, SQS, SNS, CloudWatch, DLQ를 연결해 사고 접수, 담당자 알림, 상태 변경, 보호자 2차 안내까지 이어지는 PoC를 만들었고, p95 3초, 5XX 1%, DLQ 1건, Heartbeat 10분 미수신 같은 운영 기준도 함께 정의했다.
 
 ## 참고 스크린샷
 

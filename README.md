@@ -24,12 +24,14 @@ license: mit
 
 실버타운 야간 근무자는 적은 인원으로 다수의 입주민을 담당합니다. 낙상 사고가 발생하면 담당자가 환자 곁을 떠나 전화나 무전으로 상황을 전파해야 하고, 사고 기록도 수기로 남겨야 합니다.
 
-이 프로젝트에서는 다음 문제를 해결 대상으로 잡았습니다.
+프로젝트 회고 문서에서 다음 값을 문제 기준과 목표로 정의했습니다. 외부 통계나 운영 실측값이 아니라 PoC 범위를 정하기 위한 project assumption입니다.
 
-- 기존 전파 시간: 약 14분
-- 수기 사고 기록: 평균 15분
-- 목표 전파 시간: 3초 이내
-- 목표 기록 방식: 사고 접수와 조치 상태 자동 저장
+| 구분 | 값 | 성격 |
+| --- | ---: | --- |
+| 기존 전파 시간 | 약 14분 | 문제정의 기준 |
+| 수기 사고 기록 | 평균 15분 | 문제정의 기준 |
+| 목표 전파 시간 | 3초 이내 | PoC 목표 |
+| 기록 방식 | 사고 접수와 조치 상태 자동 저장 | 구현 목표 |
 
 ## My Role
 
@@ -154,17 +156,28 @@ CloudWatch 지표를 전부 보는 대신 운영자가 바로 판단할 수 있�
 | Notification Failure | SNS Failed | 1건 이상 |
 | Health Check | HeartbeatSuccess | 10분 미수신 |
 
-## Demo Results
+## Demo Measurement and Targets
 
-| Metric | Result |
-| --- | --- |
-| API Gateway response in demo | 약 700ms |
-| Guardian notification request in demo | 약 616ms |
-| Manual incident record target | 15분 -> 0분 자동 기록 |
-| Alert propagation target | 14분 -> 3초 이내 |
-| Target monthly cost | EC2 월 $50 대비 서버리스 월 $5 내외 |
+### 단일 데모에서 확인한 값
 
-데모 화면의 전체 완료 시간 `40.1초`는 담당자가 대응 시작과 완료 버튼을 누르는 시간이 포함된 end-to-end 시연 시간입니다. 시스템 API 응답 시간과는 분리해서 봅니다.
+| 측정 항목 | 값 | 해석 범위 |
+| --- | ---: | --- |
+| API Gateway 응답 | 약 700ms | 해당 데모 실행의 client 측 측정 |
+| 보호자 알림 요청 | 약 616ms | 해당 데모 실행의 client 측 측정 |
+| 전체 완료 흐름 | 40.1초 | 담당자의 대응 시작·완료 조작을 포함 |
+
+위 값은 benchmark나 SLA가 아니라 한 번의 시연에서 기록한 값입니다.
+
+### 목표와 설계 가정
+
+| 항목 | 기준 | 성격 |
+| --- | ---: | --- |
+| 알림 전파 | 3초 이내 | PoC 목표 |
+| 사고 기록 | 접수 시 자동 저장 | workflow 목표 |
+| API/Lambda latency | p95 3초 초과 시 확인 | monitoring 기준 |
+| 월 비용 비교 | EC2 $50, serverless $5 내외 | 산정 전 비용 가정 |
+
+비용 값은 AWS 청구서로 검증한 운영 결과가 아닙니다. 실제 비용은 region, 호출량, log 보존, SNS channel과 data transfer에 따라 달라집니다.
 
 ## Security
 
